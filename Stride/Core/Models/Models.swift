@@ -495,12 +495,16 @@ final class TrainingPlan {
         return max(1, min(totalWeeks, (days / 7) + 1))
     }
 
+    /// Timeline-based progress: how far through the plan calendar we are (0.0–1.0).
     var completionPercentage: Double {
-        let scheduled = workoutDays.filter { !$0.workoutType.isRun == false || $0.workoutType.isRun }
-            .filter { !$0.workoutType.rawValue.contains("Rest") }
-        guard !scheduled.isEmpty else { return 0 }
-        let completed = scheduled.filter { $0.isCompleted }
-        return Double(completed.count) / Double(scheduled.count)
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let start = cal.startOfDay(for: planStartDate)
+        let end = cal.startOfDay(for: raceDate)
+        let totalDays = cal.dateComponents([.day], from: start, to: end).day ?? 1
+        guard totalDays > 0 else { return 1.0 }
+        let elapsed = cal.dateComponents([.day], from: start, to: today).day ?? 0
+        return min(1.0, max(0.0, Double(elapsed) / Double(totalDays)))
     }
 }
 
@@ -691,12 +695,15 @@ final class HistoricalRun {
 
     // MARK: Computed helpers
 
-    /// "8:32 /mi" format
-    var formattedPace: String {
-        let total = Int(averagePaceSecondsPerMile)
+    /// "8:32 /mi" or "5:18 /km" format depending on unit preference
+    func formattedPace(units: UnitSystem) -> String {
+        let paceSeconds = units == .miles
+            ? averagePaceSecondsPerMile
+            : averagePaceSecondsPerMile / 1.60934
+        let total = Int(paceSeconds)
         let m = total / 60
         let s = total % 60
-        return String(format: "%d:%02d /mi", m, s)
+        return String(format: "%d:%02d /%@", m, s, units.shortLabel)
     }
 
     /// "42:15" or "1:12:04" format

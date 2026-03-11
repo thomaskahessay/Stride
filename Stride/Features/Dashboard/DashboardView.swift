@@ -79,6 +79,11 @@ struct DashboardView: View {
                     .foregroundStyle(Color.stride.lavenderDeep)
             }
             Spacer()
+            Image("StrideLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(height: 36)
+            Spacer()
             // Compact race countdown pill
             VStack(alignment: .trailing, spacing: 2) {
                 HStack(spacing: 4) {

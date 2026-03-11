@@ -1,44 +1,35 @@
 import SwiftUI
 import SwiftData
 
-// MARK: - Onboarding Step
+// MARK: - Onboarding Step (New 6-step flow)
 
 enum OnboardingStep: Int, CaseIterable {
     case welcome = 0
-    case goalSetup
-    case experience
-    case fitnessBenchmark
-    case injuryCheck
-    case lifestyle
-    case schedule
     case healthSync
+    case fitnessProfile
+    case goalSetup
+    case schedule
     case planPreview
 
     var title: String {
         switch self {
-        case .welcome:          return "Welcome to Stride"
-        case .goalSetup:        return "Your race goal"
-        case .experience:       return "Your running background"
-        case .fitnessBenchmark: return "Where you are right now"
-        case .injuryCheck:      return "Any aches or pains?"
-        case .lifestyle:        return "Your daily life"
-        case .schedule:         return "Your weekly schedule"
-        case .healthSync:       return "Sync your recent runs"
-        case .planPreview:      return "Your plan is ready"
+        case .welcome:        return "Welcome to Stride"
+        case .healthSync:     return "Sync your runs"
+        case .fitnessProfile: return "Your fitness profile"
+        case .goalSetup:      return "Your race goal"
+        case .schedule:       return "Your weekly schedule"
+        case .planPreview:    return "Your plan is ready"
         }
     }
 
-    var subtitle: String {
+    var coachingLine: String {
         switch self {
-        case .welcome:          return "Let's build your personalised training plan."
-        case .goalSetup:        return "Your goal shapes every workout we prescribe."
-        case .experience:       return "The more we know, the better we calibrate your plan."
-        case .fitnessBenchmark: return "This anchors your training paces and weekly load."
-        case .injuryCheck:      return "We factor this into your load management from day one."
-        case .lifestyle:        return "Your day affects how your body recovers from training."
-        case .schedule:         return "Choose the days that work best for you."
-        case .healthSync:       return "We use your recent runs to pinpoint your plan entry week."
-        case .planPreview:      return "Review your plan and start training."
+        case .welcome:        return "Let's get to know you and build a plan that fits your life."
+        case .healthSync:     return "If you've been running with Apple Watch, we can pick up right where you left off."
+        case .fitnessProfile: return "Here's what your recent runs tell us — adjust anything that doesn't feel right."
+        case .goalSetup:      return "Now let's set the target — everything in your plan works backward from race day."
+        case .schedule:       return "Pick the days that work for your week — consistency beats perfection."
+        case .planPreview:    return "Your plan is ready. Every workout is built around what you told us."
         }
     }
 
@@ -60,33 +51,35 @@ final class OnboardingViewModel {
     var firstName: String = ""
     var selectedUnitSystem: UnitSystem = .kilometers
 
-    // MARK: Goal setup
-    var selectedGoalType: GoalType = .finishComfortably
-    var selectedRaceType: RaceType = .fullMarathon
-    var raceDate: Date = Calendar.current.date(
-        byAdding: .day, value: 90, to: Date()
-    ) ?? Date()
+    // MARK: Health sync
+    var isLoadingHealthKitRuns: Bool = false
+    var healthSyncState: HealthSyncState = .notStarted
+    var runCount: Int = 0
 
-    // MARK: Experience
-    var selectedExperience: RunningExperience = .oneToThree
-    var priorRacesCompleted: Set<RaceType> = []
-
-    var selectedFitnessLevel: FitnessLevel {
-        selectedExperience.suggestedFitnessLevel
+    enum HealthSyncState {
+        case notStarted
+        case loading
+        case success(runCount: Int)
+        case skipped
+        case notEnoughData
     }
 
-    // MARK: Fitness benchmark
+    // MARK: Fitness analysis
+    var fitnessAnalysis: FitnessAnalysis?
+    var hasEnoughData: Bool { fitnessAnalysis?.hasEnoughData ?? false }
+
+    // MARK: Fitness profile (editable — pre-filled from analysis when available)
     var currentWeeklyMiles: Double = 20
+    var zone2PaceMinutes: Int = 6
+    var zone2PaceSeconds: Int = 30
+    var selectedFitnessLevel: FitnessLevel = .intermediate
+    var longestRunMiles: Double = 0
+    var runsPerWeekDisplay: Double = 0
     var hasRecentRaceTime: Bool = false
     var recentRaceType: RaceType = .fiveK
     var recentRaceHours: Int = 0
     var recentRaceMinutes: Int = 28
     var recentRaceSeconds: Int = 0
-
-    // MARK: Easy / Zone 2 pace
-    // Stored as min:sec in the user's preferred unit; converted to sec/mile for the model.
-    var zone2PaceMinutes: Int = 6
-    var zone2PaceSeconds: Int = 30
 
     /// Pace in seconds per mile — stored on UserProfile as the plan anchor.
     var zone2PaceSecondsPerMile: Int {
@@ -99,48 +92,18 @@ final class OnboardingViewModel {
         }
     }
 
-    /// Suggested Zone 2 pace label for the user's experience level and unit preference.
-    var suggestedZone2PaceLabel: String {
-        let secPerKm: Int
-        switch selectedExperience {
-        case .newRunner:    secPerKm = 510  // 8:30 /km
-        case .underOneYear: secPerKm = 450  // 7:30 /km
-        case .oneToThree:   secPerKm = 390  // 6:30 /km
-        case .threeToFive:  secPerKm = 360  // 6:00 /km
-        case .fivePlus:     secPerKm = 330  // 5:30 /km
-        }
-        let displaySec = selectedUnitSystem == .kilometers
-            ? secPerKm
-            : Int(Double(secPerKm) * 1.60934)
-        let m = displaySec / 60
-        let s = displaySec % 60
-        return String(format: "%d:%02d /%@", m, s, selectedUnitSystem.shortLabel)
-    }
+    // MARK: Goal setup
+    var selectedGoalType: GoalType = .finishComfortably
+    var selectedRaceType: RaceType = .fullMarathon
+    var raceDate: Date = Calendar.current.date(
+        byAdding: .day, value: 90, to: Date()
+    ) ?? Date()
 
-    /// Apply the experience-level suggestion to the pace pickers.
-    func applyZone2Suggestion() {
-        let secPerKm: Int
-        switch selectedExperience {
-        case .newRunner:    secPerKm = 510
-        case .underOneYear: secPerKm = 450
-        case .oneToThree:   secPerKm = 390
-        case .threeToFive:  secPerKm = 360
-        case .fivePlus:     secPerKm = 330
-        }
-        let displaySec = selectedUnitSystem == .kilometers
-            ? secPerKm
-            : Int(Double(secPerKm) * 1.60934)
-        zone2PaceMinutes = displaySec / 60
-        zone2PaceSeconds = displaySec % 60
-    }
-
-    // MARK: Goal finish time
     var hasGoalFinishTime: Bool = false
     var goalFinishHours: Int = 4
     var goalFinishMinutes: Int = 30
     var goalFinishSecs: Int = 0
 
-    /// Total seconds for the goal finish time; 0 when no target is set.
     var goalFinishTotalSeconds: Int {
         (selectedGoalType != .finishComfortably || hasGoalFinishTime)
             ? goalFinishHours * 3600 + goalFinishMinutes * 60 + goalFinishSecs
@@ -156,26 +119,10 @@ final class OnboardingViewModel {
             : String(format: "%d:%02d", m, s)
     }
 
-    // MARK: Injury
-    var currentInjuryRegion: InjuryRegion = .none
-
-    // MARK: Lifestyle
-    var sleepHoursPerNight: Double = 7
-    var selectedActivityLevel: ActivityLevel = .mixed
-    var doesStrengthTraining: Bool = false
-
     // MARK: Schedule
     var trainingDaysPerWeek: Int = 4
     var preferredLongRunDay: Weekday = .sunday
     var selectedRestDays: Set<Weekday> = [.monday]
-
-    // MARK: Health sync
-    var recentRuns: [RecentRunEntry] = []
-    var isLoadingHealthKitRuns: Bool = false
-
-    /// Background task that fetches the 3-month HealthKit history concurrently
-    /// while the user reviews the healthSync step. Awaited in complete().
-    private var historicalFetchTask: Task<[HistoricalRunImportData], Never>?
 
     // MARK: Plan preview
     var suggestedEntryWeek: Int = 1
@@ -187,27 +134,51 @@ final class OnboardingViewModel {
     var isGeneratingPlan: Bool = false
     var isComplete: Bool = false
 
+    // MARK: Internal
+    var recentRuns: [RecentRunEntry] = []
+    private var historicalFetchTask: Task<[HistoricalRunImportData], Never>?
+    private var historicalRunData: [HistoricalRunImportData] = []
+
+    // MARK: - Coaching Lines
+
+    /// Returns the appropriate coaching line for the fitness profile step
+    /// based on whether HealthKit data is available.
+    var fitnessProfileCoachingLine: String {
+        if hasEnoughData {
+            return "Here's what your recent runs tell us — adjust anything that doesn't feel right."
+        } else {
+            return "No worries — a few details and we'll have everything we need."
+        }
+    }
+
+    /// Returns the header text for the fitness profile step.
+    var fitnessProfileHeader: String {
+        hasEnoughData ? "Here's what we found" : "Tell us about your running"
+    }
+
+    /// Schedule coaching note based on detected patterns.
+    var schedulePatternNote: String? {
+        guard let analysis = fitnessAnalysis, analysis.hasEnoughData else { return nil }
+        let dayNames = analysis.preferredRunDays.prefix(4).map(\.shortName).joined(separator: ", ")
+        let longDay = analysis.likelyLongRunDay?.displayName ?? preferredLongRunDay.displayName
+        return "Based on your history, you usually run on \(dayNames) with your long run on \(longDay)"
+    }
+
     // MARK: - Validation
 
     var canAdvance: Bool {
         switch currentStep {
         case .welcome:
             return firstName.trimmingCharacters(in: .whitespaces).count >= 1
+        case .healthSync:
+            return true // Can always skip or continue after sync
+        case .fitnessProfile:
+            return true
         case .goalSetup:
             return raceDate > Calendar.current.date(byAdding: .weekOfYear, value: 4, to: Date()) ?? Date()
-        case .experience:
-            return true
-        case .fitnessBenchmark:
-            return true
-        case .injuryCheck:
-            return true
-        case .lifestyle:
-            return true
         case .schedule:
             return !selectedRestDays.contains(preferredLongRunDay)
                 && trainingDaysPerWeek <= (7 - selectedRestDays.count)
-        case .healthSync:
-            return true
         case .planPreview:
             return generatedPlan != nil
         }
@@ -229,7 +200,7 @@ final class OnboardingViewModel {
         guard canAdvance else { return }
         isAnimatingForward = true
 
-        if currentStep == .healthSync {
+        if currentStep == .schedule {
             generatePlanPreview()
         }
 
@@ -249,27 +220,25 @@ final class OnboardingViewModel {
         }
     }
 
-    // MARK: - HealthKit
+    // MARK: - HealthKit Sync + Analysis
 
-    func loadHealthKitRuns() async {
+    func syncHealthKit() async {
+        healthSyncState = .loading
         isLoadingHealthKitRuns = true
+
         await HealthKitManager.shared.requestAuthorisation()
 
         guard HealthKitManager.shared.isAuthorized else {
+            healthSyncState = .skipped
             isLoadingHealthKitRuns = false
             return
         }
 
-        // Fetch the full 3-month history. This task is also awaited in complete()
-        // to persist results — Task.value is cached so no double-fetch occurs.
-        if historicalFetchTask == nil {
-            historicalFetchTask = Task {
-                await HealthKitManager.shared.fetchHistoricalRuns(months: 3)
-            }
-        }
+        // Fetch 3 months of history
+        let importData = await HealthKitManager.shared.fetchHistoricalRuns(months: 3)
+        historicalRunData = importData
 
-        // Await the fetch and display all 3 months in the run list
-        let importData = await historicalFetchTask!.value
+        // Map to recent runs for display
         let mapped = importData.map { data in
             RecentRunEntry(
                 date: data.startDate,
@@ -279,17 +248,60 @@ final class OnboardingViewModel {
                 isFromHealthKit: true
             )
         }
-        let manual = recentRuns.filter { !$0.isFromHealthKit }
-        recentRuns = (mapped + manual).sorted { $0.date > $1.date }
+        recentRuns = mapped.sorted { $0.date > $1.date }
+        runCount = importData.count
+
+        // Run fitness analysis
+        let analyzer = RunningFitnessAnalyzer()
+        let analysis = analyzer.analyze(importData)
+        fitnessAnalysis = analysis
+
+        if analysis.hasEnoughData {
+            applyAnalysisToFields(analysis)
+            healthSyncState = .success(runCount: importData.count)
+        } else {
+            healthSyncState = .notEnoughData
+        }
+
         isLoadingHealthKitRuns = false
     }
 
-    func addManualRun(_ run: RecentRunEntry) {
-        recentRuns.insert(run, at: 0)
+    func skipHealthSync() {
+        healthSyncState = .skipped
     }
 
-    func removeRun(at offsets: IndexSet) {
-        recentRuns.remove(atOffsets: offsets)
+    /// Apply the analyzer results to the editable fields.
+    private func applyAnalysisToFields(_ analysis: FitnessAnalysis) {
+        currentWeeklyMiles = analysis.averageWeeklyMiles
+        selectedFitnessLevel = analysis.fitnessLevel
+        longestRunMiles = analysis.longestRunMiles
+        runsPerWeekDisplay = analysis.runsPerWeek
+
+        // Convert zone2 pace (sec/mile) to display values in user's preferred unit
+        if analysis.estimatedZone2PaceSecPerMile > 0 {
+            let displaySec: Int
+            switch selectedUnitSystem {
+            case .miles:
+                displaySec = analysis.estimatedZone2PaceSecPerMile
+            case .kilometers:
+                displaySec = Int(Double(analysis.estimatedZone2PaceSecPerMile) / 1.60934)
+            }
+            zone2PaceMinutes = displaySec / 60
+            zone2PaceSeconds = displaySec % 60
+        }
+
+        // Pre-fill schedule from detected patterns
+        if let longRunDay = analysis.likelyLongRunDay {
+            preferredLongRunDay = longRunDay
+        }
+        if !analysis.likelyRestDays.isEmpty {
+            selectedRestDays = Set(analysis.likelyRestDays)
+            // Ensure long run day isn't a rest day
+            selectedRestDays.remove(preferredLongRunDay)
+        }
+        if !analysis.preferredRunDays.isEmpty {
+            trainingDaysPerWeek = min(5, max(3, Int(analysis.runsPerWeek.rounded())))
+        }
     }
 
     // MARK: - Plan Generation
@@ -319,14 +331,10 @@ final class OnboardingViewModel {
         try? modelContext.save()
         NotificationManager.shared.scheduleAll(for: profile)
 
-        // Await the background historical fetch (likely already complete by now)
-        // and persist the results. No-op if HK was denied or the task wasn't started.
-        if let task = historicalFetchTask {
-            let importData = await task.value
-            if !importData.isEmpty {
-                let service = HistoricalRunService(modelContext: modelContext)
-                service.persist(importData)
-            }
+        // Persist historical runs if we have them
+        if !historicalRunData.isEmpty {
+            let service = HistoricalRunService(modelContext: modelContext)
+            service.persist(historicalRunData)
         }
 
         isComplete = true
@@ -349,12 +357,6 @@ final class OnboardingViewModel {
         profile.goalType = selectedGoalType
         profile.goalFinishTimeSeconds = goalFinishTotalSeconds
         profile.zone2PaceSecondsPerMile = zone2PaceSecondsPerMile
-        profile.runningExperience = selectedExperience
-        profile.priorRacesCompleted = Array(priorRacesCompleted)
-        profile.currentInjuryRegion = currentInjuryRegion
-        profile.sleepHoursPerNight = sleepHoursPerNight
-        profile.activityLevel = selectedActivityLevel
-        profile.doesStrengthTraining = doesStrengthTraining
         if hasRecentRaceTime {
             profile.recentRaceTime = RaceTime(
                 raceDistance: recentRaceType,

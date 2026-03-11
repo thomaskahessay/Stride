@@ -9,8 +9,23 @@ struct ScheduleStepView: View {
                 stepHeader(
                     icon: "calendar.badge.checkmark",
                     title: "Your weekly schedule",
-                    subtitle: "We'll build your plan around the days that work for you."
+                    subtitle: "Pick the days that work for your week — consistency beats perfection."
                 )
+
+                // Show detected pattern if available
+                if let patternNote = viewModel.schedulePatternNote {
+                    GlassCard {
+                        HStack(spacing: .strideSM) {
+                            Image(systemName: "sparkles")
+                                .foregroundStyle(Color.stride.lavender)
+                                .font(.system(size: 16))
+                            Text(patternNote)
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                                .lineSpacing(2)
+                        }
+                    }
+                }
 
                 // Training days per week
                 GlassCard {

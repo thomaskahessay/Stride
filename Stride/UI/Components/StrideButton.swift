@@ -50,6 +50,7 @@ struct StrideGhostButtonStyle: ButtonStyle {
             .foregroundStyle(Color.stride.lavenderDeep)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
+            .contentShape(Rectangle())
             .overlay(
                 RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
                     .strokeBorder(Color.stride.lavenderDeep, lineWidth: 1.5)

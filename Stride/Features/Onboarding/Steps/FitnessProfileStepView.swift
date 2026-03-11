@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct FitnessBenchmarkStepView: View {
+struct FitnessProfileStepView: View {
     @Bindable var viewModel: OnboardingViewModel
 
     // Slider operates in km; viewModel stores miles internally
@@ -16,11 +16,16 @@ struct FitnessBenchmarkStepView: View {
             VStack(spacing: .strideLG) {
                 stepHeader(
                     icon: "figure.run",
-                    title: "Where you are right now",
-                    subtitle: "This anchors your training paces and weekly load."
+                    title: viewModel.fitnessProfileHeader,
+                    subtitle: viewModel.fitnessProfileCoachingLine
                 )
 
-                // Weekly mileage
+                // Context cards (read-only) — shown when we have HealthKit data
+                if viewModel.hasEnoughData {
+                    contextCards
+                }
+
+                // Weekly mileage — editable
                 GlassCard {
                     VStack(alignment: .leading, spacing: .strideSM) {
                         HStack {
@@ -47,7 +52,7 @@ struct FitnessBenchmarkStepView: View {
                     }
                 }
 
-                // Easy / Zone 2 pace
+                // Easy / Zone 2 pace — editable
                 GlassCard {
                     VStack(alignment: .leading, spacing: .strideSM) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -61,13 +66,13 @@ struct FitnessBenchmarkStepView: View {
 
                         HStack(spacing: 0) {
                             Spacer()
-                            timePicker(
+                            pacePicker(
                                 label: "min",
                                 binding: $viewModel.zone2PaceMinutes,
                                 range: viewModel.selectedUnitSystem == .kilometers ? 3...15 : 5...25
                             )
                             Text(":").font(Font.stride.headingMedium).padding(.horizontal, 4)
-                            timePicker(
+                            pacePicker(
                                 label: "sec",
                                 binding: $viewModel.zone2PaceSeconds,
                                 range: 0...59
@@ -79,23 +84,58 @@ struct FitnessBenchmarkStepView: View {
                             Spacer()
                         }
 
-                        Button {
-                            viewModel.applyZone2Suggestion()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "lightbulb.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Color.stride.lavender)
-                                Text("Suggested for your level: \(viewModel.suggestedZone2PaceLabel)")
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text("Use")
-                                    .font(Font.stride.caption.weight(.semibold))
-                                    .foregroundStyle(Color.stride.lavender)
+                        if viewModel.hasEnoughData {
+                            Label("Pre-filled from your HealthKit data", systemImage: "heart.fill")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                // Fitness level — editable override
+                GlassCard {
+                    VStack(alignment: .leading, spacing: .strideSM) {
+                        Text("Fitness Level")
+                            .font(Font.stride.headingSmall)
+
+                        if let analysis = viewModel.fitnessAnalysis, analysis.hasEnoughData {
+                            Text(analysis.fitnessExplanation)
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                                .lineSpacing(2)
+                        }
+
+                        VStack(spacing: .strideXS) {
+                            ForEach(FitnessLevel.allCases, id: \.self) { level in
+                                Button {
+                                    viewModel.selectedFitnessLevel = level
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(level.rawValue)
+                                                .font(Font.stride.bodyMedium.weight(.semibold))
+                                            Text(level.description)
+                                                .font(Font.stride.caption)
+                                                .foregroundStyle(.secondary)
+                                                .lineSpacing(2)
+                                        }
+                                        Spacer()
+                                        Image(systemName: viewModel.selectedFitnessLevel == level
+                                              ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(viewModel.selectedFitnessLevel == level
+                                                             ? Color.stride.lavender : Color(.systemGray3))
+                                            .font(.system(size: 22))
+                                    }
+                                    .padding(.strideSM)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: .strideRadiusSM)
+                                            .fill(viewModel.selectedFitnessLevel == level
+                                                  ? Color.stride.lavenderGlow : Color.clear)
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
 
@@ -118,7 +158,6 @@ struct FitnessBenchmarkStepView: View {
                         if viewModel.hasRecentRaceTime {
                             Divider()
 
-                            // Race type picker
                             Picker("Race", selection: $viewModel.recentRaceType) {
                                 ForEach(RaceType.allCases, id: \.self) { race in
                                     Text(race.shortDisplayName).tag(race)
@@ -126,14 +165,13 @@ struct FitnessBenchmarkStepView: View {
                             }
                             .pickerStyle(.segmented)
 
-                            // Time pickers
                             HStack(spacing: 0) {
                                 Spacer()
-                                timePicker(label: "h", binding: $viewModel.recentRaceHours, range: 0...8)
+                                pacePicker(label: "h", binding: $viewModel.recentRaceHours, range: 0...8)
                                 Text(":").font(Font.stride.headingMedium).padding(.horizontal, 4)
-                                timePicker(label: "m", binding: $viewModel.recentRaceMinutes, range: 0...59)
+                                pacePicker(label: "m", binding: $viewModel.recentRaceMinutes, range: 0...59)
                                 Text(":").font(Font.stride.headingMedium).padding(.horizontal, 4)
-                                timePicker(label: "s", binding: $viewModel.recentRaceSeconds, range: 0...59)
+                                pacePicker(label: "s", binding: $viewModel.recentRaceSeconds, range: 0...59)
                                 Spacer()
                             }
                         }
@@ -145,7 +183,44 @@ struct FitnessBenchmarkStepView: View {
         }
     }
 
-    private func timePicker(label: String, binding: Binding<Int>, range: ClosedRange<Int>) -> some View {
+    // MARK: - Context Cards (read-only, shown with HealthKit data)
+
+    @ViewBuilder
+    private var contextCards: some View {
+        GlassCard {
+            HStack(spacing: .strideMD) {
+                contextStat(
+                    icon: "road.lanes",
+                    label: "Longest Run",
+                    value: String(format: "%.1f km", viewModel.longestRunMiles * 1.60934)
+                )
+                Spacer()
+                contextStat(
+                    icon: "calendar",
+                    label: "Runs / Week",
+                    value: String(format: "%.1f", viewModel.runsPerWeekDisplay)
+                )
+            }
+        }
+    }
+
+    private func contextStat(icon: String, label: String, value: String) -> some View {
+        HStack(spacing: .strideSM) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.stride.lavenderDeep)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(Font.stride.bodyMedium.weight(.bold))
+                Text(label)
+                    .font(Font.stride.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func pacePicker(label: String, binding: Binding<Int>, range: ClosedRange<Int>) -> some View {
         HStack(spacing: 2) {
             Picker("", selection: binding) {
                 ForEach(range, id: \.self) { v in

@@ -120,26 +120,6 @@ struct PlanPreviewStepView: View {
                     }
                 }
 
-                if viewModel.currentInjuryRegion != .none,
-                   let note = viewModel.currentInjuryRegion.planNote {
-                    GlassCard {
-                        HStack(alignment: .top, spacing: .strideSM) {
-                            Image(systemName: "bandage.fill")
-                                .foregroundStyle(Color.stride.sage)
-                                .font(.system(size: 16))
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Injury management active")
-                                    .font(Font.stride.bodyMedium.weight(.semibold))
-                                Text(note)
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineSpacing(2)
-                            }
-                            Spacer()
-                        }
-                    }
-                }
-
                 if viewModel.isGeneratingPlan {
                     ProgressView("Building your plan...")
                         .tint(Color.stride.lavender)

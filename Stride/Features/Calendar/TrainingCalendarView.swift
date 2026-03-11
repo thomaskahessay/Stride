@@ -294,58 +294,83 @@ struct HistoricalRunDetailSheet: View {
                 LinearGradient.strideBackground.ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: .strideMD) {
-                        // Header
-                        GlassCard {
-                            VStack(spacing: .strideSM) {
+                    VStack(spacing: .strideLG) {
+                        // Hero header
+                        HeroGlassCard(tint: Color.stride.lavender) {
+                            VStack(spacing: .strideMD) {
+                                // Top row: icon + source badge
                                 HStack {
-                                    Image(systemName: run.isIndoorRun ? "treadmill" : "figure.run")
-                                        .font(.system(size: 28, weight: .semibold))
-                                        .foregroundStyle(Color.stride.lavenderDeep)
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.stride.lavenderDeep.opacity(0.15))
+                                            .frame(width: 48, height: 48)
+                                        Image(systemName: run.isIndoorRun ? "treadmill" : "figure.run")
+                                            .font(.system(size: 22, weight: .semibold))
+                                            .foregroundStyle(Color.stride.lavenderDeep)
+                                    }
                                     Spacer()
-                                    Image(systemName: "heart.fill")
-                                        .font(.system(size: 14))
-                                        .foregroundStyle(.red.opacity(0.7))
-                                    Text("Apple Health")
-                                        .font(Font.stride.caption)
-                                        .foregroundStyle(.secondary)
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "heart.fill")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.red.opacity(0.6))
+                                        Text("Apple Health")
+                                            .font(Font.stride.label)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        Capsule()
+                                            .fill(Color.white.opacity(0.5))
+                                    )
                                 }
-                                HStack(alignment: .bottom) {
+
+                                // Distance hero
+                                HStack(alignment: .firstTextBaseline, spacing: 4) {
                                     Text(displayDistance)
-                                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                                        .font(.system(size: 48, weight: .bold, design: .rounded))
                                         .foregroundStyle(Color.stride.lavenderDeep)
                                     Text(units.shortLabel)
-                                        .font(Font.stride.bodyMedium)
-                                        .foregroundStyle(.secondary)
-                                        .padding(.bottom, 6)
+                                        .font(Font.stride.headingSmall)
+                                        .foregroundStyle(Color.stride.lavenderDeep.opacity(0.6))
                                     Spacer()
                                 }
-                                Text(run.startDate.formatted(.dateTime.weekday(.wide).month(.wide).day().year()))
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                // Date + time
+                                HStack(spacing: .strideSM) {
+                                    Label(
+                                        run.startDate.formatted(.dateTime.weekday(.wide).month(.wide).day()),
+                                        systemImage: "calendar"
+                                    )
+                                    Text("·")
+                                    Text(run.startDate.formatted(.dateTime.hour().minute()))
+                                }
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                // Quick stats row
+                                HStack(spacing: 0) {
+                                    quickStat(value: run.formattedDuration, label: "Duration")
+                                    Divider().frame(height: 32)
+                                    quickStat(value: run.formattedPace(units: units), label: "Avg Pace")
+                                    if let kcal = run.totalCalories {
+                                        Divider().frame(height: 32)
+                                        quickStat(value: "\(Int(kcal))", label: "Calories")
+                                    }
+                                }
+                                .padding(.top, .strideXS)
                             }
                         }
 
-                        // Stats grid
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .strideSM) {
-                            StatTile(label: "Duration", value: run.formattedDuration, icon: "clock.fill")
-                            StatTile(label: "Avg Pace", value: run.formattedPace, icon: "gauge.open.with.lines.needle.33percent")
-                            if let hr = run.averageHeartRate {
-                                StatTile(label: "Avg Heart Rate", value: "\(Int(hr)) bpm", icon: "heart.fill")
-                            }
-                            if let maxHR = run.maxHeartRate {
-                                StatTile(label: "Max Heart Rate", value: "\(Int(maxHR)) bpm", icon: "heart.fill")
-                            }
-                            if let cadence = run.averageCadenceSPM {
-                                StatTile(label: "Avg Cadence", value: "\(Int(cadence)) spm", icon: "figure.run.circle")
-                            }
-                            if let stride = run.averageStrideLengthMeters {
-                                StatTile(label: "Stride Length", value: String(format: "%.2f m", stride), icon: "arrow.left.and.right")
-                            }
-                            if let kcal = run.totalCalories {
-                                StatTile(label: "Calories", value: "\(Int(kcal)) kcal", icon: "flame.fill")
-                            }
+                        // Heart rate section
+                        if run.averageHeartRate != nil || run.maxHeartRate != nil {
+                            heartRateSection
+                        }
+
+                        // Running dynamics section
+                        if run.averageCadenceSPM != nil || run.averageStrideLengthMeters != nil {
+                            runningDynamicsSection
                         }
                     }
                     .padding(.strideMD)
@@ -362,35 +387,138 @@ struct HistoricalRunDetailSheet: View {
         }
     }
 
+    // MARK: - Quick Stat
+
+    private func quickStat(value: String, label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+            Text(label)
+                .font(Font.stride.label)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Heart Rate Section
+
+    private var heartRateSection: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("Heart Rate", systemImage: "heart.fill")
+                    .font(Font.stride.headingSmall)
+                    .foregroundStyle(Color.stride.lavenderDeep)
+
+                HStack(spacing: .strideMD) {
+                    if let avg = run.averageHeartRate {
+                        heartRateStat(
+                            value: "\(Int(avg))",
+                            label: "Avg",
+                            color: heartRateColor(bpm: avg)
+                        )
+                    }
+                    if let max = run.maxHeartRate {
+                        heartRateStat(
+                            value: "\(Int(max))",
+                            label: "Max",
+                            color: heartRateColor(bpm: max)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func heartRateStat(value: String, label: String, color: Color) -> some View {
+        VStack(spacing: .strideXS) {
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(color)
+                Text("bpm")
+                    .font(Font.stride.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(label)
+                .font(Font.stride.label)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.strideSM)
+        .background(
+            RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
+                .fill(color.opacity(0.08))
+        )
+    }
+
+    /// Simple color coding for heart rate values (not zones — just visual indication).
+    private func heartRateColor(bpm: Double) -> Color {
+        switch bpm {
+        case ..<120:  return Color.stride.mint
+        case ..<150:  return Color.stride.sage
+        case ..<170:  return Color.stride.warmOrange
+        default:      return Color.stride.coral
+        }
+    }
+
+    // MARK: - Running Dynamics Section
+
+    private var runningDynamicsSection: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("Running Dynamics", systemImage: "waveform.path.ecg")
+                    .font(Font.stride.headingSmall)
+                    .foregroundStyle(Color.stride.lavenderDeep)
+
+                HStack(spacing: .strideMD) {
+                    if let cadence = run.averageCadenceSPM {
+                        dynamicStat(
+                            value: "\(Int(cadence))",
+                            unit: "spm",
+                            label: "Cadence",
+                            icon: "figure.run.circle"
+                        )
+                    }
+                    if let stride = run.averageStrideLengthMeters {
+                        dynamicStat(
+                            value: String(format: "%.2f", stride),
+                            unit: "m",
+                            label: "Stride Length",
+                            icon: "arrow.left.and.right"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func dynamicStat(value: String, unit: String, label: String, icon: String) -> some View {
+        VStack(spacing: .strideXS) {
+            Image(systemName: icon)
+                .font(.system(size: 18))
+                .foregroundStyle(Color.stride.lavenderDeep.opacity(0.6))
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                Text(unit)
+                    .font(Font.stride.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Text(label)
+                .font(Font.stride.label)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.strideSM)
+        .background(
+            RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
+                .fill(Color.stride.lavenderLight.opacity(0.3))
+        )
+    }
+
     private var displayDistance: String {
         let value = units == .miles ? run.distanceMiles : run.distanceMiles * 1.60934
         return String(format: "%.2f", value)
-    }
-}
-
-// MARK: - Stat Tile
-
-private struct StatTile: View {
-    let label: String
-    let value: String
-    let icon: String
-
-    var body: some View {
-        GlassCard(padding: .strideSM) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 4) {
-                    Image(systemName: icon)
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.stride.lavenderDeep.opacity(0.7))
-                    Text(label)
-                        .font(Font.stride.label)
-                        .foregroundStyle(.secondary)
-                }
-                Text(value)
-                    .font(Font.stride.bodyMedium.weight(.semibold))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }
 

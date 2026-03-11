@@ -10,42 +10,41 @@ struct OnboardingView: View {
             LinearGradient.strideBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Progress bar
-                OnboardingProgressBar(progress: viewModel.currentStep.progress)
-                    .padding(.horizontal, .strideMD)
-                    .padding(.top, .strideMD)
+                // Animated progress bar
+                OnboardingProgressBar(
+                    progress: viewModel.currentStep.progress,
+                    stepIndex: viewModel.currentStep.rawValue,
+                    totalSteps: OnboardingStep.allCases.count
+                )
+                .padding(.horizontal, .strideMD)
+                .padding(.top, .strideMD)
 
                 // Step content
                 Group {
                     switch viewModel.currentStep {
                     case .welcome:
                         WelcomeStepView(viewModel: viewModel)
-                    case .goalSetup:
-                        GoalSetupStepView(viewModel: viewModel)
-                    case .experience:
-                        ExperienceStepView(viewModel: viewModel)
-                    case .fitnessBenchmark:
-                        FitnessBenchmarkStepView(viewModel: viewModel)
-                    case .injuryCheck:
-                        InjuryCheckStepView(viewModel: viewModel)
-                    case .lifestyle:
-                        LifestyleStepView(viewModel: viewModel)
-                    case .schedule:
-                        ScheduleStepView(viewModel: viewModel)
                     case .healthSync:
                         HealthSyncStepView(viewModel: viewModel)
+                    case .fitnessProfile:
+                        FitnessProfileStepView(viewModel: viewModel)
+                    case .goalSetup:
+                        GoalSetupStepView(viewModel: viewModel)
+                    case .schedule:
+                        ScheduleStepView(viewModel: viewModel)
                     case .planPreview:
                         PlanPreviewStepView(viewModel: viewModel)
                     }
                 }
                 .transition(
                     .asymmetric(
-                        insertion: .move(edge: viewModel.isAnimatingForward ? .trailing : .leading),
+                        insertion: .move(edge: viewModel.isAnimatingForward ? .trailing : .leading)
+                            .combined(with: .opacity),
                         removal: .move(edge: viewModel.isAnimatingForward ? .leading : .trailing)
+                            .combined(with: .opacity)
                     )
-                    .combined(with: .opacity)
                 )
-                .animation(.easeInOut(duration: 0.3), value: viewModel.currentStep)
+                .animation(.spring(response: 0.45, dampingFraction: 0.82), value: viewModel.currentStep)
                 .frame(maxHeight: .infinity)
 
                 // Navigation buttons
@@ -58,6 +57,7 @@ struct OnboardingView: View {
                         }
                         .buttonStyle(StridePrimaryButtonStyle())
                         .disabled(!viewModel.canAdvance)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
                     } else {
                         Button("Continue") {
                             viewModel.advance()
@@ -71,10 +71,12 @@ struct OnboardingView: View {
                             viewModel.goBack()
                         }
                         .buttonStyle(StrideGhostButtonStyle())
+                        .transition(.opacity)
                     }
                 }
                 .padding(.horizontal, .strideMD)
                 .padding(.bottom, .strideXL)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.currentStep)
             }
         }
     }
@@ -84,21 +86,45 @@ struct OnboardingView: View {
 
 private struct OnboardingProgressBar: View {
     let progress: Double
+    let stepIndex: Int
+    let totalSteps: Int
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.stride.lavenderLight)
-                    .frame(height: 6)
+        VStack(spacing: .strideXS) {
+            // Step dots + connecting bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    // Track
+                    Capsule()
+                        .fill(Color.stride.lavenderLight)
+                        .frame(height: 4)
 
-                Capsule()
-                    .fill(Color.stride.lavender)
-                    .frame(width: geo.size.width * progress, height: 6)
-                    .animation(.easeInOut(duration: 0.4), value: progress)
+                    // Fill
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.stride.lavender, Color.stride.lavenderDeep],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * progress, height: 4)
+                        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: progress)
+                }
+            }
+            .frame(height: 4)
+
+            // Step indicator text
+            HStack {
+                Text("Step \(stepIndex + 1) of \(totalSteps)")
+                    .font(Font.stride.caption)
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.3), value: stepIndex)
+
+                Spacer()
             }
         }
-        .frame(height: 6)
     }
 }
 

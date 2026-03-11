@@ -1,6 +1,27 @@
 import Foundation
 import SwiftData
 
+/// Aggregated stats from imported HealthKit runs.
+struct HistoricalSummary {
+    let totalRuns: Int
+    let totalMiles: Double
+    let avgWeeklyMiles: Double
+    let avgPaceSecondsPerMile: Double
+    let longestRunMiles: Double
+    let longestRunDate: Date?
+    let earliestDate: Date
+
+    func formattedAvgPace(units: UnitSystem) -> String {
+        let paceSeconds = units == .miles
+            ? avgPaceSecondsPerMile
+            : avgPaceSecondsPerMile / 1.60934
+        let total = Int(paceSeconds)
+        let mins = total / 60
+        let secs = total % 60
+        return String(format: "%d:%02d /%@", mins, secs, units.shortLabel)
+    }
+}
+
 /// Orchestrates importing HealthKit historical runs into SwiftData.
 /// Handles deduplication and persistence — HealthKitManager owns the HK queries,
 /// this service owns the SwiftData side.
@@ -112,6 +133,60 @@ final class HistoricalRunService {
         if didInsert {
             try? modelContext.save()
         }
+    }
+
+    /// Returns weekly mileage totals grouped by ISO week, sorted oldest → newest.
+    /// Used by StatsView to show pre-plan mileage in the chart.
+    func weeklyMileageBreakdown(weeks: Int = 12) -> [(weekStart: Date, miles: Double)] {
+        let cal = Calendar.current
+        guard let cutoff = cal.date(byAdding: .weekOfYear, value: -weeks, to: Date()) else { return [] }
+
+        let predicate = #Predicate<HistoricalRun> { run in run.date >= cutoff }
+        let descriptor = FetchDescriptor<HistoricalRun>(
+            predicate: predicate,
+            sortBy: [SortDescriptor(\.startDate, order: .forward)]
+        )
+        let runs = (try? modelContext.fetch(descriptor)) ?? []
+        guard !runs.isEmpty else { return [] }
+
+        // Group runs by the Monday of their week
+        var buckets: [Date: Double] = [:]
+        for run in runs {
+            let weekStart = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: run.date)) ?? run.date
+            buckets[weekStart, default: 0] += run.distanceMiles
+        }
+
+        return buckets.sorted { $0.key < $1.key }.map { (weekStart: $0.key, miles: $0.value) }
+    }
+
+    /// Returns summary stats for all historical runs (for the "Your Running History" card).
+    func historicalSummary() -> HistoricalSummary? {
+        let runs = allRuns()
+        guard !runs.isEmpty else { return nil }
+
+        let totalMiles = runs.reduce(0) { $0 + $1.distanceMiles }
+        let longestRun = runs.max(by: { $0.distanceMiles < $1.distanceMiles })
+        let totalPaceSum = runs.reduce(0.0) { $0 + $1.averagePaceSecondsPerMile }
+        let avgPace = totalPaceSum / Double(runs.count)
+
+        // Weeks spanned
+        let cal = Calendar.current
+        if let earliest = runs.first?.date, let latest = runs.last?.date {
+            let weeksSpanned = max(1, (cal.dateComponents([.weekOfYear], from: earliest, to: latest).weekOfYear ?? 0) + 1)
+            let avgWeeklyMiles = totalMiles / Double(weeksSpanned)
+
+            return HistoricalSummary(
+                totalRuns: runs.count,
+                totalMiles: totalMiles,
+                avgWeeklyMiles: avgWeeklyMiles,
+                avgPaceSecondsPerMile: avgPace,
+                longestRunMiles: longestRun?.distanceMiles ?? 0,
+                longestRunDate: longestRun?.date,
+                earliestDate: earliest
+            )
+        }
+
+        return nil
     }
 
     // MARK: - Private

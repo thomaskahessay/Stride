@@ -266,25 +266,66 @@ struct ReadyCheckView: View {
                 .frame(maxWidth: .infinity)
             }
 
-            // Accept button
-            Button {
-                viewModel.accept()
-                dismiss()
-            } label: {
-                HStack(spacing: .strideSM) {
-                    Image(systemName: "checkmark.circle.fill")
-                    Text("Got It")
+            // Action buttons — two paths when recommendation isn't sendIt
+            if result.recommendation == .sendIt {
+                Button {
+                    viewModel.accept()
+                    dismiss()
+                } label: {
+                    HStack(spacing: .strideSM) {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Got It")
+                    }
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
+                            .fill(resultColor(for: result.recommendation))
+                    )
                 }
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
-                        .fill(resultColor(for: result.recommendation))
-                )
+                .sensoryFeedback(.success, trigger: true)
+            } else {
+                // Follow coach advice
+                Button {
+                    viewModel.acceptWithAdaptation()
+                    dismiss()
+                } label: {
+                    HStack(spacing: .strideSM) {
+                        Image(systemName: "brain.head.profile")
+                        Text("Follow coach advice")
+                    }
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
+                            .fill(resultColor(for: result.recommendation))
+                    )
+                }
+                .sensoryFeedback(.success, trigger: true)
+
+                // Override — user keeps original workout
+                Button {
+                    viewModel.acceptWithoutAdaptation()
+                    dismiss()
+                } label: {
+                    HStack(spacing: .strideSM) {
+                        Image(systemName: "figure.run")
+                        Text("I've got this")
+                    }
+                    .font(Font.stride.bodyMedium.weight(.semibold))
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
+                            .strokeBorder(Color.stride.lavenderDeep.opacity(0.4), lineWidth: 1)
+                    )
+                }
             }
-            .sensoryFeedback(.success, trigger: true)
 
             // Re-evaluate option
             Button {

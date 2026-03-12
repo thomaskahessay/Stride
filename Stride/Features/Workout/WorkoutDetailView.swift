@@ -32,6 +32,10 @@ struct WorkoutDetailView: View {
                         }
 
                         coachingNote
+
+                        if workout.isAdapted, let note = workout.adaptationNote {
+                            adaptationCallout(note: note)
+                        }
                     }
                     .padding(.strideMD)
                     .padding(.bottom, 120)
@@ -80,16 +84,13 @@ struct WorkoutDetailView: View {
                 showConfettiOnParent: $showConfetti
             )
         }
-        .sheet(isPresented: $viewModel.showReschedule) {
-            RescheduleWorkoutView(viewModel: viewModel)
-        }
         .alert("Delete Log?", isPresented: $viewModel.showDeleteLogConfirmation) {
             Button("Delete", role: .destructive) {
                 viewModel.deleteLog(context: modelContext)
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This will remove your logged data for this workout. You'll be able to swap, skip, or move it again.")
+            Text("This will remove your logged data for this workout. You'll be able to skip it again.")
         }
     }
 
@@ -108,6 +109,26 @@ struct WorkoutDetailView: View {
                     .foregroundStyle(.secondary)
 
                 // Status badges
+                if workout.isAdapted {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Adapted")
+                            .font(Font.stride.label)
+                    }
+                    .foregroundStyle(Color.stride.warmOrange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(Color.stride.warmOrange.opacity(0.15))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.stride.warmOrange.opacity(0.4), lineWidth: 1)
+                            )
+                    )
+                }
+
                 if workout.isCompleted {
                     Label("Completed", systemImage: "checkmark.circle.fill")
                         .font(Font.stride.bodyMedium.weight(.semibold))
@@ -294,6 +315,28 @@ struct WorkoutDetailView: View {
         }
     }
 
+    // MARK: - Adaptation Callout
+
+    private func adaptationCallout(note: String) -> some View {
+        GlassCard {
+            HStack(alignment: .top, spacing: .strideSM) {
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.stride.warmOrange)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Plan Adjusted")
+                        .font(Font.stride.bodyMedium.weight(.semibold))
+                        .foregroundStyle(Color.stride.warmOrange)
+                    Text(note)
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(2)
+                }
+            }
+        }
+    }
+
     // MARK: - Bottom Actions
 
     private var bottomActions: some View {
@@ -317,31 +360,25 @@ struct WorkoutDetailView: View {
                 .buttonStyle(StridePrimaryButtonStyle())
 
                 if viewModel.canAdjust {
-                    HStack(spacing: .strideSM) {
-                        Button(viewModel.skipButtonLabel) {
-                            viewModel.toggleSkipped()
-                        }
-                        .buttonStyle(StrideSecondaryButtonStyle())
-
-                        Button("Move") {
-                            viewModel.showReschedule = true
-                        }
-                        .buttonStyle(StrideSecondaryButtonStyle())
+                    Button(viewModel.skipButtonLabel) {
+                        viewModel.toggleSkipped()
                     }
+                    .buttonStyle(StrideSecondaryButtonStyle())
                 } else if viewModel.isLocked && workout.workoutType != .restDay {
-                    // Show disabled swap/skip with explanation
-                    HStack(spacing: .strideSM) {
-                        Button(viewModel.skipButtonLabel) { }
-                            .buttonStyle(StrideSecondaryButtonStyle())
-                            .disabled(true)
-
-                        Button("Move") { }
-                            .buttonStyle(StrideSecondaryButtonStyle())
-                            .disabled(true)
-                    }
+                    Button(viewModel.skipButtonLabel) { }
+                        .buttonStyle(StrideSecondaryButtonStyle())
+                        .disabled(true)
                     Text("Already logged — delete log to adjust")
                         .font(Font.stride.caption)
                         .foregroundStyle(.tertiary)
+                }
+
+                if workout.isAdapted && !workout.isCompleted {
+                    Button("Restore Original") {
+                        viewModel.revertAdaptation(context: modelContext)
+                    }
+                    .font(Font.stride.bodyMedium)
+                    .foregroundStyle(Color.stride.warmOrange)
                 }
             }
         }

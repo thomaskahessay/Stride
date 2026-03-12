@@ -578,6 +578,7 @@ struct LogWorkoutView: View {
 
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         showConfettiOnParent = true
+        NotificationCenter.default.post(name: Notification.Name("workoutLogged"), object: nil)
         dismiss()
     }
 

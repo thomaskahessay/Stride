@@ -69,6 +69,30 @@ final class ReadyCheckViewModel {
 
     func accept() {
         guard let result else { return }
+        persistCheck(accepted: true)
+    }
+
+    /// Accepts the recommendation and applies the adaptation to today's workout.
+    func acceptWithAdaptation() {
+        guard let result else { return }
+        persistCheck(accepted: true)
+
+        guard let workout = todayWorkout, result.recommendation != .sendIt else { return }
+        let engine = PlanAdaptationEngine()
+        engine.applyReadinessAdaptation(
+            workout: workout,
+            recommendation: result.recommendation,
+            context: modelContext
+        )
+    }
+
+    /// Accepts the readiness check but keeps the original workout unchanged.
+    func acceptWithoutAdaptation() {
+        persistCheck(accepted: true)
+    }
+
+    private func persistCheck(accepted: Bool) {
+        guard let result else { return }
 
         let check = ReadinessCheck(
             sleepQuality: sleepQuality,
@@ -80,7 +104,7 @@ final class ReadyCheckViewModel {
             recommendation: result.recommendation,
             readinessScore: result.score
         )
-        check.wasAccepted = true
+        check.wasAccepted = accepted
         modelContext.insert(check)
         try? modelContext.save()
     }

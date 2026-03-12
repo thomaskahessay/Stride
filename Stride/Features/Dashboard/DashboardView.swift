@@ -1,10 +1,14 @@
 import SwiftUI
+import SwiftData
 
 struct DashboardView: View {
     let profile: UserProfile
 
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel: DashboardViewModel
     @State private var selectedWorkout: WorkoutDay? = nil
+    @State private var showReadyCheck = false
+    @State private var hasAutoShownReadyCheck = false
 
     init(profile: UserProfile) {
         self.profile = profile
@@ -20,6 +24,11 @@ struct DashboardView: View {
                     VStack(spacing: .strideMD) {
                         // Greeting + compact race countdown
                         greetingHeader
+
+                        // Ready Check prompt
+                        if !viewModel.isRestDay && !viewModel.hasCompletedReadyCheckToday {
+                            ReadyCheckPromptCard { showReadyCheck = true }
+                        }
 
                         // Weekly calendar strip
                         WeeklyCalendarStrip(weekDays: viewModel.currentWeekDays) { workout in
@@ -56,7 +65,22 @@ struct DashboardView: View {
                 }
             }
             .navigationBarHidden(true)
-            .onAppear { viewModel.refresh() }
+            .onAppear {
+                viewModel.setModelContext(modelContext)
+                viewModel.refresh()
+
+                // Auto-show Ready Check as full-screen cover on first daily open
+                if !hasAutoShownReadyCheck
+                    && !viewModel.isRestDay
+                    && !viewModel.hasCompletedReadyCheckToday
+                    && viewModel.todayWorkout != nil {
+                    hasAutoShownReadyCheck = true
+                    // Small delay so the dashboard renders first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        showReadyCheck = true
+                    }
+                }
+            }
             .sheet(item: $selectedWorkout) { workout in
                 if let detailVM = viewModel.makeWorkoutDetailViewModel(for: workout) {
                     WorkoutDetailView(viewModel: detailVM, units: profile.unitPreference)
@@ -64,6 +88,12 @@ struct DashboardView: View {
             }
             .onChange(of: selectedWorkout) { _, newValue in
                 if newValue == nil { viewModel.refresh() }
+            }
+            .fullScreenCover(isPresented: $showReadyCheck) {
+                ReadyCheckView(profile: profile, modelContext: modelContext)
+            }
+            .onChange(of: showReadyCheck) { _, isShowing in
+                if !isShowing { viewModel.refresh() }
             }
         }
     }
@@ -442,6 +472,44 @@ struct PlanProgressCard: View {
             }
             .frame(maxWidth: .infinity)
         }
+    }
+}
+
+// MARK: - Ready Check Prompt Card
+
+struct ReadyCheckPromptCard: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            GlassCard {
+                HStack(spacing: .strideSM) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.stride.lavender.opacity(0.3))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Ready Check")
+                            .font(Font.stride.headingSmall)
+                        Text("How are you feeling before today's workout?")
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 

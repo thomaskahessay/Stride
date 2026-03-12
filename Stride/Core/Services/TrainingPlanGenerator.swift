@@ -219,35 +219,32 @@ final class TrainingPlanGenerator {
                 }
                 : nil
 
-            // Remaining slots after long run and quality
-            let slotsAfterFixed = profile.trainingDaysPerWeek
+            // Running slots: trainingDaysPerWeek covers long run + quality + easy runs only
+            let easyRunSlots = max(0, profile.trainingDaysPerWeek
                 - 1
-                - (qualityWeekday != nil ? 1 : 0)
-
-            // Strength takes one of those remaining slots (base/build only)
-            let strengthCandidates = weekDays.map(\.weekday).filter {
-                !profile.restDays.contains($0)
-                    && $0 != profile.preferredLongRunDay
-                    && $0 != qualityWeekday
-            }
-            let strengthWeekday: Weekday? = (phase == .base || phase == .build) && slotsAfterFixed > 0
-                ? strengthCandidates.first
-                : nil
-
-            // Easy run slots: whatever is left after long + quality + strength
-            let easyRunSlots = max(0, slotsAfterFixed - (strengthWeekday != nil ? 1 : 0))
+                - (qualityWeekday != nil ? 1 : 0))
             var easyRunWeekdays: Set<Weekday> = []
             var easyCount = 0
             for (_, weekday) in weekDays {
                 guard easyCount < easyRunSlots else { break }
                 if !profile.restDays.contains(weekday)
                     && weekday != profile.preferredLongRunDay
-                    && weekday != qualityWeekday
-                    && weekday != strengthWeekday {
+                    && weekday != qualityWeekday {
                     easyRunWeekdays.insert(weekday)
                     easyCount += 1
                 }
             }
+
+            // Strength is an additional day on top of trainingDaysPerWeek (base/build only).
+            // Place it on the first free day that isn't a rest, run, or quality day.
+            let strengthWeekday: Weekday? = (phase == .base || phase == .build)
+                ? weekDays.map(\.weekday).first {
+                    !profile.restDays.contains($0)
+                        && $0 != profile.preferredLongRunDay
+                        && $0 != qualityWeekday
+                        && !easyRunWeekdays.contains($0)
+                }
+                : nil
 
             // Build each day using the pre-determined slot assignments
             for (date, weekday) in weekDays {

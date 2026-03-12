@@ -8,6 +8,7 @@ struct DashboardView: View {
     @State private var viewModel: DashboardViewModel
     @State private var selectedWorkout: WorkoutDay? = nil
     @State private var showReadyCheck = false
+    @State private var hasAutoShownReadyCheck = false
 
     init(profile: UserProfile) {
         self.profile = profile
@@ -67,6 +68,18 @@ struct DashboardView: View {
             .onAppear {
                 viewModel.setModelContext(modelContext)
                 viewModel.refresh()
+
+                // Auto-show Ready Check as full-screen cover on first daily open
+                if !hasAutoShownReadyCheck
+                    && !viewModel.isRestDay
+                    && !viewModel.hasCompletedReadyCheckToday
+                    && viewModel.todayWorkout != nil {
+                    hasAutoShownReadyCheck = true
+                    // Small delay so the dashboard renders first
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        showReadyCheck = true
+                    }
+                }
             }
             .sheet(item: $selectedWorkout) { workout in
                 if let detailVM = viewModel.makeWorkoutDetailViewModel(for: workout) {
@@ -76,7 +89,7 @@ struct DashboardView: View {
             .onChange(of: selectedWorkout) { _, newValue in
                 if newValue == nil { viewModel.refresh() }
             }
-            .sheet(isPresented: $showReadyCheck) {
+            .fullScreenCover(isPresented: $showReadyCheck) {
                 ReadyCheckView(profile: profile, modelContext: modelContext)
             }
             .onChange(of: showReadyCheck) { _, isShowing in

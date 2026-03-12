@@ -9,7 +9,6 @@ final class WorkoutDetailViewModel {
     private let adjustmentService: WorkoutAdjustmentService
 
     var showLogWorkout = false
-    var showReschedule = false
     var showDeleteLogConfirmation = false
 
     init(
@@ -24,9 +23,9 @@ final class WorkoutDetailViewModel {
 
     // MARK: - Computed
 
-    /// Swap/skip/move are only available when:
+    /// Skip is only available when:
     /// - The workout is not completed (no log exists)
-    /// - It's not a rest day (rest days don't need rescheduling)
+    /// - It's not a rest day
     var canAdjust: Bool {
         !workout.isCompleted && workout.log == nil && workout.workoutType != .restDay
     }
@@ -34,10 +33,6 @@ final class WorkoutDetailViewModel {
     /// True when the workout has a log attached — used to show disabled state messaging.
     var isLocked: Bool {
         workout.log != nil
-    }
-
-    var raceDate: Date {
-        plan.raceDate
     }
 
     var skipButtonLabel: String {
@@ -85,12 +80,7 @@ final class WorkoutDetailViewModel {
         }
     }
 
-    func reschedule(to date: Date) {
-        let conflicting = workout(on: date)
-        adjustmentService.reschedule(workout, to: date, swappingWith: conflicting)
-    }
-
-    /// Deletes the workout log, re-opening swap/skip/move actions.
+    /// Deletes the workout log, re-opening swap/skip actions.
     func deleteLog(context: ModelContext) {
         guard let log = workout.log else { return }
         workout.log = nil
@@ -99,12 +89,35 @@ final class WorkoutDetailViewModel {
         try? context.save()
     }
 
-    // MARK: - Helpers
+    /// Reverts any adaptation on this workout, restoring original values.
+    func revertAdaptation(context: ModelContext) {
+        guard workout.isAdapted else { return }
 
-    /// Returns the workout whose effectiveDate falls on `date`, excluding the current workout.
-    func workout(on date: Date) -> WorkoutDay? {
-        plan.workoutDays.first {
-            Calendar.current.isDate($0.effectiveDate, inSameDayAs: date) && $0.id != workout.id
+        let workoutID = workout.id
+        let descriptor = FetchDescriptor<AdaptationRecord>(
+            predicate: #Predicate { $0.workoutDayID == workoutID && !$0.wasRevertedByUser }
+        )
+
+        if let record = try? context.fetch(descriptor).first {
+            let engine = PlanAdaptationEngine()
+            engine.revertAdaptation(record: record, workout: workout, context: context)
+        } else {
+            if let origType = workout.originalWorkoutType {
+                workout.workoutType = origType
+                workout.workoutTitle = origType.rawValue
+            }
+            if let origDist = workout.originalTargetDistanceMiles {
+                workout.targetDistanceMiles = origDist
+            }
+            if let origEffort = workout.originalEffortLevel {
+                workout.effortLevel = origEffort
+            }
+            workout.isAdapted = false
+            workout.originalWorkoutType = nil
+            workout.originalTargetDistanceMiles = nil
+            workout.originalEffortLevel = nil
+            workout.adaptationNote = nil
+            try? context.save()
         }
     }
 }

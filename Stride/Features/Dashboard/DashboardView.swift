@@ -30,6 +30,15 @@ struct DashboardView: View {
                             ReadyCheckPromptCard { showReadyCheck = true }
                         }
 
+                        // Adaptation banner
+                        if !viewModel.pendingAdaptations.isEmpty {
+                            AdaptationBannerCard(
+                                records: viewModel.pendingAdaptations,
+                                onDismiss: { viewModel.dismissAllAdaptations() },
+                                onUndo: { viewModel.revertAllAdaptations() }
+                            )
+                        }
+
                         // Weekly calendar strip
                         WeeklyCalendarStrip(weekDays: viewModel.currentWeekDays) { workout in
                             selectedWorkout = workout
@@ -94,6 +103,9 @@ struct DashboardView: View {
             }
             .onChange(of: showReadyCheck) { _, isShowing in
                 if !isShowing { viewModel.refresh() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("workoutLogged"))) { _ in
+                viewModel.refresh()
             }
         }
     }

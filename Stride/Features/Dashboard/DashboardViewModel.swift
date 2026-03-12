@@ -12,13 +12,20 @@ final class DashboardViewModel {
     var currentStreak: Int = 0
     var daysToRace: Int = 0
     var planCompletionPercent: Double = 0
+    var hasCompletedReadyCheckToday: Bool = false
 
     // MARK: - Init
     private let profile: UserProfile
+    private var modelContext: ModelContext?
 
-    init(profile: UserProfile) {
+    init(profile: UserProfile, modelContext: ModelContext? = nil) {
         self.profile = profile
+        self.modelContext = modelContext
         refresh()
+    }
+
+    func setModelContext(_ context: ModelContext) {
+        self.modelContext = context
     }
 
     // MARK: - Refresh
@@ -76,6 +83,15 @@ final class DashboardViewModel {
 
         // Streak
         currentStreak = calculateStreak(plan: plan)
+
+        // Ready Check — has one been completed today?
+        if let ctx = modelContext {
+            let todayStart = Calendar.current.startOfDay(for: Date())
+            let descriptor = FetchDescriptor<ReadinessCheck>(
+                predicate: #Predicate { $0.date >= todayStart }
+            )
+            hasCompletedReadyCheckToday = (try? ctx.fetchCount(descriptor)) ?? 0 > 0
+        }
     }
 
     // MARK: - Factory

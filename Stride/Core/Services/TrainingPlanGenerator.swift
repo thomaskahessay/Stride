@@ -186,35 +186,97 @@ final class TrainingPlanGenerator {
     ) -> [WorkoutDay] {
         var days: [WorkoutDay] = []
         let calendar = Calendar.current
-        let totalDays = plan.totalWeeks * 7
 
-        for dayOffset in 0..<totalDays {
-            guard let date = calendar.date(
-                byAdding: .day,
-                value: dayOffset,
-                to: plan.planStartDate
-            ) else { continue }
+        for week in 1...plan.totalWeeks {
+            let weekStartOffset = (week - 1) * 7
+            let weekMiles = mileageByWeek[week] ?? 0
+            let phase = trainingPhase(week: week, total: plan.totalWeeks)
 
-            let weekNumber = (dayOffset / 7) + 1
-            let weekdayRaw = calendar.component(.weekday, from: date)
-            guard let weekday = Weekday(rawValue: weekdayRaw) else { continue }
+            // Collect all dates + weekdays for this 7-day window
+            var weekDays: [(date: Date, weekday: Weekday)] = []
+            for dayInWeek in 0..<7 {
+                guard let date = calendar.date(
+                    byAdding: .day,
+                    value: weekStartOffset + dayInWeek,
+                    to: plan.planStartDate
+                ) else { continue }
+                let weekdayRaw = calendar.component(.weekday, from: date)
+                guard let weekday = Weekday(rawValue: weekdayRaw) else { continue }
+                weekDays.append((date, weekday))
+            }
 
-            let weekMiles = mileageByWeek[weekNumber] ?? 0
-            let phase = trainingPhase(week: weekNumber, total: plan.totalWeeks)
+            // --- Slot budget ---
+            // 1. Long run: always 1 slot (on preferredLongRunDay)
+            // 2. Quality run: 1 slot in build/peak, on the first available midweek day
+            // 3. Strength: 1 slot in base/build, from the remaining slots after quality
+            // 4. Easy runs: fill the rest up to trainingDaysPerWeek
+            // All other days become rest.
 
-            let workoutDay = buildDay(
-                date: date,
-                weekNumber: weekNumber,
-                weekday: weekday,
-                weeklyMiles: weekMiles,
-                profile: profile,
-                phase: phase,
-                plan: plan,
-                dayOffset: dayOffset,
-                paceZones: paceZones
-            )
+            let midweekDays: [Weekday] = [.tuesday, .wednesday, .thursday]
+            let qualityWeekday: Weekday? = (phase == .build || phase == .peak)
+                ? midweekDays.first {
+                    !profile.restDays.contains($0) && $0 != profile.preferredLongRunDay
+                }
+                : nil
 
-            days.append(workoutDay)
+            // Running slots: trainingDaysPerWeek covers long run + quality + easy runs only
+            let easyRunSlots = max(0, profile.trainingDaysPerWeek
+                - 1
+                - (qualityWeekday != nil ? 1 : 0))
+            var easyRunWeekdays: Set<Weekday> = []
+            var easyCount = 0
+            for (_, weekday) in weekDays {
+                guard easyCount < easyRunSlots else { break }
+                if !profile.restDays.contains(weekday)
+                    && weekday != profile.preferredLongRunDay
+                    && weekday != qualityWeekday {
+                    easyRunWeekdays.insert(weekday)
+                    easyCount += 1
+                }
+            }
+
+            // Strength is an additional day on top of trainingDaysPerWeek (base/build only).
+            // Place it on the first free day that isn't a rest, run, or quality day.
+            let strengthWeekday: Weekday? = (phase == .base || phase == .build)
+                ? weekDays.map(\.weekday).first {
+                    !profile.restDays.contains($0)
+                        && $0 != profile.preferredLongRunDay
+                        && $0 != qualityWeekday
+                        && !easyRunWeekdays.contains($0)
+                }
+                : nil
+
+            // Build each day using the pre-determined slot assignments
+            for (date, weekday) in weekDays {
+                let workoutDay: WorkoutDay
+
+                if profile.restDays.contains(weekday) {
+                    workoutDay = makeRestDay(date: date, weekNumber: week, weekday: weekday)
+                } else if weekday == profile.preferredLongRunDay {
+                    workoutDay = makeLongRunDay(
+                        date: date, weekNumber: week, weekday: weekday,
+                        weeklyMiles: weekMiles, profile: profile,
+                        phase: phase, paceZones: paceZones
+                    )
+                } else if weekday == qualityWeekday {
+                    workoutDay = week % 2 == 0
+                        ? makeTempoDay(date: date, weekNumber: week, weekday: weekday,
+                                       weeklyMiles: weekMiles, profile: profile, paceZones: paceZones)
+                        : makeIntervalDay(date: date, weekNumber: week, weekday: weekday,
+                                          weeklyMiles: weekMiles, profile: profile, paceZones: paceZones)
+                } else if weekday == strengthWeekday {
+                    workoutDay = makeStrengthDay(date: date, weekNumber: week, weekday: weekday)
+                } else if easyRunWeekdays.contains(weekday) {
+                    workoutDay = makeEasyRunDay(
+                        date: date, weekNumber: week, weekday: weekday,
+                        weeklyMiles: weekMiles, profile: profile, paceZones: paceZones
+                    )
+                } else {
+                    workoutDay = makeRestDay(date: date, weekNumber: week, weekday: weekday)
+                }
+
+                days.append(workoutDay)
+            }
         }
 
         return days
@@ -229,65 +291,6 @@ final class TrainingPlanGenerator {
         else if week <= build { return .build }
         else if week <= peak { return .peak }
         else { return .taper }
-    }
-
-    private func buildDay(
-        date: Date,
-        weekNumber: Int,
-        weekday: Weekday,
-        weeklyMiles: Double,
-        profile: UserProfile,
-        phase: TrainingPhase,
-        plan: TrainingPlan,
-        dayOffset: Int,
-        paceZones: PaceZones?
-    ) -> WorkoutDay {
-        // Rest days
-        if profile.restDays.contains(weekday) {
-            return makeRestDay(date: date, weekNumber: weekNumber, weekday: weekday)
-        }
-
-        // Long run day
-        if weekday == profile.preferredLongRunDay {
-            return makeLongRunDay(
-                date: date,
-                weekNumber: weekNumber,
-                weekday: weekday,
-                weeklyMiles: weeklyMiles,
-                profile: profile,
-                phase: phase,
-                paceZones: paceZones
-            )
-        }
-
-        // Quality days — alternate tempo/intervals in build/peak
-        let isQualityDay = isScheduledQualityDay(
-            weekday: weekday,
-            weekNumber: weekNumber,
-            profile: profile,
-            phase: phase
-        )
-
-        if isQualityDay && phase != .base && phase != .taper {
-            return weekNumber % 2 == 0
-                ? makeTempoDay(date: date, weekNumber: weekNumber, weekday: weekday, weeklyMiles: weeklyMiles, profile: profile, paceZones: paceZones)
-                : makeIntervalDay(date: date, weekNumber: weekNumber, weekday: weekday, weeklyMiles: weeklyMiles, profile: profile, paceZones: paceZones)
-        }
-
-        // Strength day — one per week in base/build
-        if shouldAddStrength(weekday: weekday, weekNumber: weekNumber, profile: profile, phase: phase) {
-            return makeStrengthDay(date: date, weekNumber: weekNumber, weekday: weekday)
-        }
-
-        // Default: easy run
-        return makeEasyRunDay(
-            date: date,
-            weekNumber: weekNumber,
-            weekday: weekday,
-            weeklyMiles: weeklyMiles,
-            profile: profile,
-            paceZones: paceZones
-        )
     }
 
     // MARK: - Workout Factories
@@ -562,36 +565,6 @@ final class TrainingPlanGenerator {
         }
     }
 
-    // MARK: - Schedule Helpers
-
-    private func isScheduledQualityDay(
-        weekday: Weekday,
-        weekNumber: Int,
-        profile: UserProfile,
-        phase: TrainingPhase
-    ) -> Bool {
-        guard phase == .build || phase == .peak else { return false }
-        // Quality day is the weekday closest to midweek, not the long run day or rest day
-        let midweekDays: [Weekday] = [.tuesday, .wednesday, .thursday]
-        return midweekDays.contains(weekday)
-            && !profile.restDays.contains(weekday)
-            && weekday != profile.preferredLongRunDay
-    }
-
-    private func shouldAddStrength(
-        weekday: Weekday,
-        weekNumber: Int,
-        profile: UserProfile,
-        phase: TrainingPhase
-    ) -> Bool {
-        guard phase == .base || phase == .build else { return false }
-        // One strength day per week — place on a non-run day adjacent to rest
-        let candidateDays = Weekday.allCases.filter {
-            !profile.restDays.contains($0) && $0 != profile.preferredLongRunDay
-        }
-        // Use the first candidate day for strength (simplified placement)
-        return weekday == candidateDays.first && weekNumber % 1 == 0
-    }
 }
 
 // MARK: - Supporting Types

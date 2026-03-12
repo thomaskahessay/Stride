@@ -38,6 +38,6 @@ extension Double {
     /// Formats a distance in miles to a localised display string.
     func formattedDistance(unit: UnitSystem) -> String {
         let value = unit.convert(self)
-        return String(format: value < 10 ? "%.1f" : "%.0f", value)
+        return String(format: "%.1f %@", value, unit.shortLabel)
     }
 }

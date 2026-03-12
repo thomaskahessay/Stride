@@ -14,6 +14,9 @@ private enum LogMode: Equatable {
 struct LogWorkoutView: View {
     let workoutDay: WorkoutDay?
     var units: UnitSystem = .kilometers
+    var weeklyLoggedMiles: Double = 0
+    var weeklyTargetMiles: Double = 0
+    @Binding var showConfettiOnParent: Bool
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -24,16 +27,29 @@ struct LogWorkoutView: View {
     // Form state — distance stored internally as miles
     @State private var distanceMiles: Double = 0
     @State private var durationHours: Int = 0
-    @State private var durationMinutes: Int = 30
+    @State private var durationMinutes: Int = 0
     @State private var durationSeconds: Int = 0
     @State private var effortRating: Int = 5
     @State private var notes: String = ""
     @State private var heartRateText: String = ""
     @State private var paceText: String = ""       // "m:ss" — empty = use computed
-    @State private var showConfetti = false
     @State private var isSaving = false
+    @State private var showAlreadyLoggedAlert = false
+    @State private var distanceText: String = ""
+    @FocusState private var isDistanceFocused: Bool
+
+    // Rest-day specific
+    @State private var restDayActivityType: RestDayActivityType = .crossTraining
 
     private let healthKit = HealthKitManager.shared
+
+    private var isRestDayLog: Bool {
+        workoutDay?.workoutType == .restDay
+    }
+
+    private var isCrossTrainingLog: Bool {
+        isRestDayLog && restDayActivityType == .crossTraining
+    }
 
     var body: some View {
         NavigationStack {
@@ -70,11 +86,6 @@ struct LogWorkoutView: View {
                 }
                 .animation(.easeInOut(duration: 0.2), value: mode)
 
-                if showConfetti {
-                    ConfettiOverlay()
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
             }
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -83,6 +94,11 @@ struct LogWorkoutView: View {
                     Button(leadingLabel) { leadingAction() }
                         .foregroundStyle(Color.stride.lavenderDeep)
                 }
+            }
+            .alert("Already Logged", isPresented: $showAlreadyLoggedAlert) {
+                Button("OK") { dismiss() }
+            } message: {
+                Text("You've already logged a workout for today. View or edit it from the workout detail screen.")
             }
         }
     }
@@ -132,90 +148,153 @@ struct LogWorkoutView: View {
                     HKImportBanner(data: hkData, units: units)
                 }
 
-                // Distance
-                GlassCard {
-                    VStack(alignment: .leading, spacing: .strideSM) {
-                        Label("Distance", systemImage: "road.lanes")
-                            .font(Font.stride.headingSmall)
+                // Rest-day activity type selector
+                if isRestDayLog {
+                    restDayActivityPicker
+                }
 
-                        HStack {
-                            Text(String(format: "%.1f", units.convert(distanceMiles)))
-                                .font(.system(size: 40, weight: .bold, design: .rounded))
-                            Text(units.shortLabel)
+                // Mileage warning for rest-day runs
+                if isRestDayLog && restDayActivityType.countsTowardRunningVolume {
+                    mileageWarningBanner
+                }
+
+                // Hide running metrics for cross-training
+                if !isCrossTrainingLog {
+                    // Distance
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: .strideSM) {
+                            Label("Distance", systemImage: "road.lanes")
                                 .font(Font.stride.headingSmall)
-                                .foregroundStyle(.secondary)
-                        }
 
-                        Slider(value: distanceKmBinding, in: 0...80, step: 0.1)
-                            .tint(Color.stride.lavender)
-                    }
-                }
-
-                // Duration
-                GlassCard {
-                    VStack(alignment: .leading, spacing: .strideSM) {
-                        Label("Duration", systemImage: "clock.fill")
-                            .font(Font.stride.headingSmall)
-
-                        HStack(spacing: 0) {
-                            durationPicker(label: "h", binding: $durationHours, range: 0...8)
-                            Text(":").font(Font.stride.headingMedium).padding(.horizontal, 4)
-                            durationPicker(label: "m", binding: $durationMinutes, range: 0...59)
-                            Text(":").font(Font.stride.headingMedium).padding(.horizontal, 4)
-                            durationPicker(label: "s", binding: $durationSeconds, range: 0...59)
-                        }
-                    }
-                }
-
-                // Performance — pace (computed) + optional HR
-                GlassCard {
-                    VStack(alignment: .leading, spacing: .strideSM) {
-                        Label("Performance", systemImage: "chart.xyaxis.line")
-                            .font(Font.stride.headingSmall)
-
-                        Divider()
-
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Avg Pace")
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: 4) {
-                                    TextField(computedPaceFormatted, text: $paceText)
-                                        .keyboardType(.numbersAndPunctuation)
-                                        .font(Font.stride.bodyMedium.weight(.semibold))
-                                        .frame(width: 56)
-                                        .onChange(of: paceText) {
-                                            // Allow digits and one colon only
-                                            let filtered = paceText.filter { $0.isNumber || $0 == ":" }
-                                            if filtered != paceText { paceText = filtered }
+                            HStack(alignment: .firstTextBaseline) {
+                                TextField(
+                                    "0.0",
+                                    text: $distanceText
+                                )
+                                .keyboardType(.decimalPad)
+                                .font(.system(size: 40, weight: .bold, design: .rounded))
+                                .frame(maxWidth: 160)
+                                .focused($isDistanceFocused)
+                                .onChange(of: distanceText) {
+                                    // Allow only digits and at most one decimal point with 1 decimal place
+                                    var filtered = distanceText.filter { $0.isNumber || $0 == "." }
+                                    // Remove extra decimal points
+                                    let dotCount = filtered.filter { $0 == "." }.count
+                                    if dotCount > 1 {
+                                        var seenDot = false
+                                        filtered = String(filtered.filter { c in
+                                            if c == "." {
+                                                if seenDot { return false }
+                                                seenDot = true
+                                            }
+                                            return true
+                                        })
+                                    }
+                                    // Limit to 1 decimal place
+                                    if let dotIndex = filtered.firstIndex(of: ".") {
+                                        let afterDot = filtered[filtered.index(after: dotIndex)...]
+                                        if afterDot.count > 1 {
+                                            filtered = String(filtered[...dotIndex]) + String(afterDot.prefix(1))
                                         }
-                                    Text("/ \(units.shortLabel)")
-                                        .font(Font.stride.caption)
-                                        .foregroundStyle(.secondary)
+                                    }
+                                    if filtered != distanceText {
+                                        distanceText = filtered
+                                    }
+                                    if !isDistanceFocused {
+                                        syncDistanceFromText()
+                                    }
                                 }
+                                .onSubmit { syncDistanceFromText() }
+                                .onChange(of: isDistanceFocused) {
+                                    if !isDistanceFocused {
+                                        syncDistanceFromText()
+                                    }
+                                }
+
+                                Text(units.shortLabel)
+                                    .font(Font.stride.headingSmall)
+                                    .foregroundStyle(.secondary)
                             }
 
-                            Spacer()
+                            Slider(value: distanceKmBinding, in: 0...80, step: 0.1)
+                                .tint(Color.stride.lavender)
+                                .onChange(of: distanceMiles) {
+                                    if !isDistanceFocused {
+                                        distanceText = String(format: "%.1f", units.convert(distanceMiles))
+                                    }
+                                }
+                        }
+                    }
 
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text("Avg Heart Rate")
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: 4) {
-                                    TextField("—", text: $heartRateText)
-                                        .keyboardType(.numberPad)
-                                        .font(Font.stride.bodyMedium.weight(.semibold))
-                                        .multilineTextAlignment(.trailing)
-                                        .frame(width: 52)
-                                        .onChange(of: heartRateText) {
-                                            heartRateText = String(
-                                                heartRateText.prefix(3).filter { $0.isNumber }
-                                            )
-                                        }
-                                    Text("bpm")
+                    // Duration
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: .strideSM) {
+                            Label("Duration", systemImage: "clock.fill")
+                                .font(Font.stride.headingSmall)
+
+                            HStack(spacing: 0) {
+                                Spacer()
+                                durationPicker(label: "h", binding: $durationHours, range: 0...8)
+                                Text(":").font(Font.stride.headingMedium).padding(.horizontal, 4)
+                                durationPicker(label: "m", binding: $durationMinutes, range: 0...59)
+                                Text(":").font(Font.stride.headingMedium).padding(.horizontal, 4)
+                                durationPicker(label: "s", binding: $durationSeconds, range: 0...59)
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+
+                    // Performance — pace (computed) + optional HR
+                    GlassCard {
+                        VStack(alignment: .leading, spacing: .strideSM) {
+                            Label("Performance", systemImage: "chart.xyaxis.line")
+                                .font(Font.stride.headingSmall)
+
+                            Divider()
+
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Avg Pace")
                                         .font(Font.stride.caption)
                                         .foregroundStyle(.secondary)
+                                    HStack(spacing: 4) {
+                                        TextField(computedPaceFormatted, text: $paceText)
+                                            .keyboardType(.numbersAndPunctuation)
+                                            .font(Font.stride.bodyMedium.weight(.semibold))
+                                            .frame(width: 56)
+                                            .onChange(of: paceText) {
+                                                // Allow digits and one colon only
+                                                let filtered = paceText.filter { $0.isNumber || $0 == ":" }
+                                                if filtered != paceText { paceText = filtered }
+                                            }
+                                        Text("/ \(units.shortLabel)")
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("Avg Heart Rate")
+                                        .font(Font.stride.caption)
+                                        .foregroundStyle(.secondary)
+                                    HStack(spacing: 4) {
+                                        TextField("—", text: $heartRateText)
+                                            .keyboardType(.numberPad)
+                                            .font(Font.stride.bodyMedium.weight(.semibold))
+                                            .multilineTextAlignment(.trailing)
+                                            .frame(width: 52)
+                                            .onChange(of: heartRateText) {
+                                                heartRateText = String(
+                                                    heartRateText.prefix(3).filter { $0.isNumber }
+                                                )
+                                            }
+                                        Text("bpm")
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -264,11 +343,15 @@ struct LogWorkoutView: View {
                 .buttonStyle(StridePrimaryButtonStyle())
                 .padding(.strideMD)
                 .background(.ultraThinMaterial)
-                .disabled(isSaving)
+                .disabled(isSaving || (!isCrossTrainingLog && !hasRequiredFields))
         }
     }
 
     // MARK: - Computed
+
+    private var hasRequiredFields: Bool {
+        distanceMiles > 0 && totalDurationSeconds > 0
+    }
 
     private var distanceKmBinding: Binding<Double> {
         Binding(
@@ -322,16 +405,115 @@ struct LogWorkoutView: View {
         return bpm
     }
 
+    // MARK: - Rest Day Components
+
+    private var restDayActivityPicker: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("What did you do?", systemImage: "figure.mixed.cardio")
+                    .font(Font.stride.headingSmall)
+
+                ForEach(RestDayActivityType.allCases, id: \.self) { activity in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            restDayActivityType = activity
+                        }
+                    } label: {
+                        HStack(spacing: .strideSM) {
+                            Image(systemName: activity.sfSymbol)
+                                .font(.system(size: 18))
+                                .frame(width: 28)
+                                .foregroundStyle(
+                                    restDayActivityType == activity
+                                        ? Color.stride.lavenderDeep
+                                        : .secondary
+                                )
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(activity.rawValue)
+                                    .font(Font.stride.bodyMedium.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(activity.description)
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: restDayActivityType == activity
+                                  ? "checkmark.circle.fill"
+                                  : "circle")
+                                .foregroundStyle(
+                                    restDayActivityType == activity
+                                        ? Color.stride.lavender
+                                        : Color(.systemGray4)
+                                )
+                                .font(.system(size: 22))
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+
+                    if activity != RestDayActivityType.allCases.last {
+                        Divider()
+                    }
+                }
+            }
+        }
+    }
+
+    private var mileageWarningBanner: some View {
+        let projectedTotal = weeklyLoggedMiles + distanceMiles
+        let overagePercent = weeklyTargetMiles > 0
+            ? ((projectedTotal - weeklyTargetMiles) / weeklyTargetMiles) * 100
+            : 0
+
+        return Group {
+            if projectedTotal > weeklyTargetMiles * 1.10 {
+                GlassCard {
+                    HStack(spacing: .strideSM) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.orange)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Heads up — extra volume")
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                            Text("This puts you at \(String(format: "%.1f", units.convert(projectedTotal))) \(units.shortLabel) this week — \(Int(overagePercent))% above your plan. Overtraining increases injury risk.")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
+
+    private func syncDistanceFromText() {
+        if let value = Double(distanceText), value >= 0 {
+            let clamped = min(value, 80)
+            distanceMiles = units == .kilometers ? clamped / 1.60934 : clamped
+            distanceText = String(format: "%.1f", clamped)
+        } else if distanceText.isEmpty {
+            distanceMiles = 0
+        }
+    }
 
     private func prefillFromWorkoutDay() {
         guard let workout = workoutDay else { return }
         distanceMiles = workout.targetDistanceMiles
-        durationMinutes = workout.targetDurationMinutes
+        distanceText = String(format: "%.1f", units.convert(workout.targetDistanceMiles))
+        // Don't prefill duration — user must enter their actual time
+        durationHours = 0
+        durationMinutes = 0
+        durationSeconds = 0
     }
 
     private func applyHealthKitData(_ data: HealthKitWorkoutData) {
         distanceMiles = data.distanceMiles
+        distanceText = String(format: "%.1f", units.convert(data.distanceMiles))
         let total = data.durationSeconds
         durationHours = total / 3600
         durationMinutes = (total % 3600) / 60
@@ -369,6 +551,13 @@ struct LogWorkoutView: View {
 
     private func save() {
         guard let workout = workoutDay else { return }
+
+        // Prevent overwriting an existing log
+        if workout.log != nil {
+            showAlreadyLoggedAlert = true
+            return
+        }
+
         isSaving = true
 
         let log = WorkoutLog(
@@ -378,7 +567,8 @@ struct LogWorkoutView: View {
             notes: notes,
             sourceHealthKit: selectedHKWorkout != nil,
             averageHeartRate: parsedHeartRate,
-            averagePaceSecPerMile: effectivePaceSecPerMile
+            averagePaceSecPerMile: effectivePaceSecPerMile,
+            restDayActivityType: isRestDayLog ? restDayActivityType : nil
         )
 
         modelContext.insert(log)
@@ -386,20 +576,9 @@ struct LogWorkoutView: View {
         workout.isCompleted = true
         try? modelContext.save()
 
-        let isLongRun = workout.workoutType == .longRun
-        let isMilestone = [25, 50, 75, 100].contains(Int(distanceMiles.rounded()))
-
-        if isLongRun || isMilestone {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            withAnimation { showConfetti = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                withAnimation { showConfetti = false }
-                dismiss()
-            }
-        } else {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            dismiss()
-        }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        showConfettiOnParent = true
+        dismiss()
     }
 
     // MARK: - RPE Description
@@ -640,47 +819,135 @@ private struct RPESlider: View {
     }
 }
 
-// MARK: - Confetti Overlay (placeholder)
+// MARK: - Confetti Overlay (Canvas particle system)
 
 struct ConfettiOverlay: View {
+    @State private var particles: [ConfettiParticle] = []
+    @State private var startDate: Date = .now
+
+    private static let particleCount = 120
+    private static let colors: [Color] = [
+        .stride.lavender, .stride.lavenderDeep, .stride.lavenderLight,
+        .stride.mint, .stride.sky, .white
+    ]
+
     var body: some View {
-        ZStack {
-            ForEach(0..<30, id: \.self) { i in
-                ConfettiParticle(delay: Double(i) * 0.05)
+        TimelineView(.animation) { timeline in
+            let elapsed = timeline.date.timeIntervalSince(startDate)
+
+            Canvas { context, size in
+                for particle in particles {
+                    let age = elapsed - particle.delay
+                    guard age > 0 else { continue }
+
+                    let progress = min(age / particle.lifetime, 1.0)
+
+                    // Physics: gravity + lateral drift + drag
+                    let gravity: CGFloat = 420
+                    let drag: CGFloat = 1.0 - (0.3 * progress)
+                    let x = particle.startX * size.width
+                        + particle.velocityX * CGFloat(age) * drag
+                    let y = particle.startY
+                        + particle.velocityY * CGFloat(age) * drag
+                        + 0.5 * gravity * CGFloat(age * age)
+
+                    // Fade out in final 40%
+                    let opacity = progress < 0.6 ? 1.0 : max(0, 1.0 - (progress - 0.6) / 0.4)
+                    guard opacity > 0, y < size.height + 20 else { continue }
+
+                    // Spin
+                    let angle = Angle.degrees(particle.spinRate * age)
+
+                    var contextCopy = context
+                    contextCopy.opacity = opacity
+                    contextCopy.translateBy(x: x, y: y)
+                    contextCopy.rotate(by: angle)
+
+                    let rect = CGRect(
+                        x: -particle.width / 2,
+                        y: -particle.height / 2,
+                        width: particle.width,
+                        height: particle.height
+                    )
+
+                    switch particle.shape {
+                    case .rectangle:
+                        contextCopy.fill(
+                            Path(roundedRect: rect, cornerRadius: 2),
+                            with: .color(particle.color)
+                        )
+                    case .circle:
+                        contextCopy.fill(
+                            Path(ellipseIn: rect),
+                            with: .color(particle.color)
+                        )
+                    case .strip:
+                        contextCopy.fill(
+                            Path(roundedRect: rect, cornerRadius: 1),
+                            with: .color(particle.color)
+                        )
+                    }
+                }
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .onAppear {
+            startDate = .now
+            particles = (0..<Self.particleCount).map { _ in
+                ConfettiParticle.random(colors: Self.colors)
+            }
+        }
     }
 }
 
-private struct ConfettiParticle: View {
-    let delay: Double
-    @State private var offset: CGSize = .zero
-    @State private var opacity: Double = 1
+// MARK: - Confetti Particle Model
 
-    private let colors: [Color] = [.stride.lavender, .stride.lavenderDeep, .white, Color(hex: "#FFD700")]
-    private let size: CGFloat = CGFloat.random(in: 6...14)
+private struct ConfettiParticle {
+    enum Shape: CaseIterable { case rectangle, circle, strip }
 
-    var body: some View {
-        RoundedRectangle(cornerRadius: 2)
-            .fill(colors.randomElement() ?? .stride.lavender)
-            .frame(width: size, height: size * 0.5)
-            .offset(offset)
-            .opacity(opacity)
-            .onAppear {
-                let randomX = CGFloat.random(in: -200...200)
-                withAnimation(.easeOut(duration: 2.0).delay(delay)) {
-                    offset = CGSize(
-                        width: randomX,
-                        height: CGFloat.random(in: 300...700)
-                    )
-                    opacity = 0
-                }
-            }
-            .position(
-                x: CGFloat.random(in: 50...350),
-                y: CGFloat.random(in: 0...100)
-            )
+    let startX: CGFloat      // 0...1 fraction of canvas width
+    let startY: CGFloat      // absolute points (negative = above screen)
+    let velocityX: CGFloat   // pts/sec lateral
+    let velocityY: CGFloat   // pts/sec initial upward (negative)
+    let width: CGFloat
+    let height: CGFloat
+    let color: Color
+    let shape: Shape
+    let spinRate: Double      // degrees/sec
+    let delay: Double         // seconds before appearing
+    let lifetime: Double      // total seconds alive
+
+    static func random(colors: [Color]) -> ConfettiParticle {
+        let shape = Shape.allCases.randomElement() ?? .rectangle
+        let baseSize = CGFloat.random(in: 6...12)
+        let width: CGFloat
+        let height: CGFloat
+
+        switch shape {
+        case .rectangle:
+            width = baseSize
+            height = baseSize * CGFloat.random(in: 0.5...0.8)
+        case .circle:
+            width = baseSize * 0.8
+            height = width
+        case .strip:
+            width = baseSize * 0.4
+            height = baseSize * CGFloat.random(in: 1.2...2.0)
+        }
+
+        return ConfettiParticle(
+            startX: CGFloat.random(in: 0.1...0.9),
+            startY: CGFloat.random(in: -40...20),
+            velocityX: CGFloat.random(in: -120...120),
+            velocityY: CGFloat.random(in: -350 ... -100),
+            width: width,
+            height: height,
+            color: colors.randomElement() ?? .white,
+            shape: shape,
+            spinRate: Double.random(in: -400...400),
+            delay: Double.random(in: 0...1.0),
+            lifetime: Double.random(in: 3.0...5.0)
+        )
     }
 }

@@ -165,6 +165,37 @@ enum UnitSystem: String, Codable, CaseIterable {
     }
 }
 
+enum RestDayActivityType: String, Codable, CaseIterable {
+    case crossTraining = "Cross-Training"
+    case easyShakeout  = "Easy Shakeout"
+    case fullRun       = "Full Run"
+
+    var description: String {
+        switch self {
+        case .crossTraining: return "Yoga, swimming, cycling — logged but doesn't count toward running volume."
+        case .easyShakeout:  return "A short, easy jog under 2 miles / 3 km — minimal impact on recovery."
+        case .fullRun:       return "A proper run — counts toward your weekly mileage."
+        }
+    }
+
+    var sfSymbol: String {
+        switch self {
+        case .crossTraining: return "figure.cooldown"
+        case .easyShakeout:  return "figure.walk"
+        case .fullRun:       return "figure.run"
+        }
+    }
+
+    /// Whether this activity type should count toward weekly running mileage.
+    var countsTowardRunningVolume: Bool {
+        switch self {
+        case .crossTraining: return false
+        case .easyShakeout:  return true
+        case .fullRun:       return true
+        }
+    }
+}
+
 enum GoalType: String, Codable, CaseIterable {
     case finishComfortably = "Finish Comfortably"
     case targetTime        = "Hit a Target Time"
@@ -598,6 +629,7 @@ final class WorkoutLog {
     var sourceHealthKit: Bool
     var averageHeartRate: Double?
     var averagePaceSecPerMile: Int? // nil = not recorded
+    var restDayActivityType: RestDayActivityType? // nil = normal workout day log
 
     init(
         actualDistanceMiles: Double = 0,
@@ -606,7 +638,8 @@ final class WorkoutLog {
         notes: String = "",
         sourceHealthKit: Bool = false,
         averageHeartRate: Double? = nil,
-        averagePaceSecPerMile: Int? = nil
+        averagePaceSecPerMile: Int? = nil,
+        restDayActivityType: RestDayActivityType? = nil
     ) {
         self.id = UUID()
         self.loggedAt = Date()
@@ -617,6 +650,7 @@ final class WorkoutLog {
         self.sourceHealthKit = sourceHealthKit
         self.averageHeartRate = averageHeartRate
         self.averagePaceSecPerMile = averagePaceSecPerMile
+        self.restDayActivityType = restDayActivityType
     }
 
     var formattedDuration: String {
@@ -719,8 +753,8 @@ final class HistoricalRun {
         }
     }
 
-    /// Rounded to 2 decimal places for display
+    /// Rounded to 1 decimal place for display
     var formattedDistance: String {
-        String(format: "%.2f mi", distanceMiles)
+        String(format: "%.1f mi", distanceMiles)
     }
 }

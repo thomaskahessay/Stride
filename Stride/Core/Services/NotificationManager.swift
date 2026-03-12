@@ -22,32 +22,85 @@ final class NotificationManager {
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         guard profile.notificationsEnabled else { return }
 
-        scheduleDailyReminder(hour: profile.dailyReminderHour, minute: profile.dailyReminderMinute)
+        scheduleDailyWorkoutReminders(
+            for: profile.activePlan,
+            hour: profile.dailyReminderHour,
+            minute: profile.dailyReminderMinute
+        )
         scheduleWeeklySummary()
     }
 
-    // MARK: - Daily Workout Reminder
+    // MARK: - Daily Workout Reminders (workout-specific, next 7 days)
 
-    private func scheduleDailyReminder(hour: Int, minute: Int) {
-        let content = UNMutableNotificationContent()
-        content.title = "Time to stride 👟"
-        content.body = "Your workout is waiting. Let's get it done."
-        content.sound = .default
+    private func scheduleDailyWorkoutReminders(for plan: TrainingPlan?, hour: Int, minute: Int) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
 
-        var dateComponents = DateComponents()
-        dateComponents.hour = hour
-        dateComponents.minute = minute
+        // Get upcoming workouts for the next 7 days
+        let upcomingWorkouts: [WorkoutDay] = {
+            guard let plan = plan else { return [] }
+            return plan.workoutDays.filter { workout in
+                let workoutDate = calendar.startOfDay(for: workout.date)
+                let daysAhead = calendar.dateComponents([.day], from: today, to: workoutDate).day ?? -1
+                return daysAhead >= 0 && daysAhead < 7 && !workout.isCompleted && !workout.isSkipped
+            }
+        }()
 
-        let trigger = UNCalendarNotificationTrigger(
-            dateMatching: dateComponents,
-            repeats: true
-        )
-        let request = UNNotificationRequest(
-            identifier: "stride.daily.reminder",
-            content: content,
-            trigger: trigger
-        )
-        UNUserNotificationCenter.current().add(request)
+        for workout in upcomingWorkouts {
+            let content = UNMutableNotificationContent()
+            content.sound = .default
+
+            if workout.workoutType == .restDay {
+                content.title = "Rest day"
+                content.body = "No run today — recover and come back stronger."
+            } else {
+                content.title = "Today's run: \(workout.workoutTitle)"
+                let distance = String(format: "%.1f mi", workout.targetDistanceMiles)
+                content.body = "\(workout.workoutType.rawValue) — \(distance). Let's go!"
+            }
+
+            var dateComponents = calendar.dateComponents([.year, .month, .day], from: workout.date)
+            dateComponents.hour = hour
+            dateComponents.minute = minute
+
+            let trigger = UNCalendarNotificationTrigger(
+                dateMatching: dateComponents,
+                repeats: false
+            )
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            let dateString = formatter.string(from: workout.date)
+            let request = UNNotificationRequest(
+                identifier: "stride.daily.\(dateString)",
+                content: content,
+                trigger: trigger
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+
+        // Fallback: if no plan or no upcoming workouts, schedule a generic repeating reminder
+        if upcomingWorkouts.isEmpty {
+            let content = UNMutableNotificationContent()
+            content.title = "Time to stride"
+            content.body = "Your workout is waiting. Let's get it done."
+            content.sound = .default
+
+            var dateComponents = DateComponents()
+            dateComponents.hour = hour
+            dateComponents.minute = minute
+
+            let trigger = UNCalendarNotificationTrigger(
+                dateMatching: dateComponents,
+                repeats: true
+            )
+            let request = UNNotificationRequest(
+                identifier: "stride.daily.reminder",
+                content: content,
+                trigger: trigger
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
     }
 
     // MARK: - Weekly Summary (Sunday 8pm)

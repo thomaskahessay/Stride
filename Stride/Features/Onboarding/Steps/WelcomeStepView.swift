@@ -16,7 +16,7 @@ struct WelcomeStepView: View {
     @State private var isTypingComplete = false
     @FocusState private var nameFieldFocused: Bool
 
-    private let fullSubtitle = "Let's build a plan that fits your life."
+    private let fullSubtitle = "Let's find your stride."
 
     var body: some View {
         ZStack {

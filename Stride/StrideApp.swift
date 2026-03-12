@@ -52,5 +52,16 @@ struct AppRootView: View {
                 await HealthKitManager.shared.requestAuthorisation()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            refreshNotifications()
+        }
+        .onChange(of: profile?.activePlan?.workoutDays.count) {
+            refreshNotifications()
+        }
+    }
+
+    private func refreshNotifications() {
+        guard let profile = profile, profile.onboardingComplete else { return }
+        NotificationManager.shared.scheduleAll(for: profile)
     }
 }

@@ -44,7 +44,7 @@ struct DashboardView: View {
 
                         // Streak + Plan Progress
                         HStack(spacing: .strideMD) {
-                            StreakBadgeView(streak: viewModel.currentStreak)
+                            StreakBadgeView(streak: viewModel.currentStreak, isRestDay: viewModel.isRestDay)
                                 .frame(maxWidth: .infinity)
 
                             PlanProgressCard(completion: viewModel.planCompletionPercent)
@@ -148,9 +148,12 @@ struct WeeklyCalendarStrip: View {
     }
 
     private var stripDates: [Date] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        return (-3...3).compactMap { calendar.date(byAdding: .day, value: $0, to: today) }
+        var cal = Calendar.current
+        cal.firstWeekday = 1 // Sunday
+        let today = cal.startOfDay(for: Date())
+        let weekday = cal.component(.weekday, from: today) // 1 = Sunday
+        let sunday = cal.date(byAdding: .day, value: -(weekday - 1), to: today)!
+        return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: sunday) }
     }
 }
 
@@ -383,6 +386,7 @@ struct WeeklyProgressCard: View {
 
 struct StreakBadgeView: View {
     let streak: Int
+    var isRestDay: Bool = false
 
     var body: some View {
         GlassCard(cornerRadius: .strideRadiusLG) {
@@ -397,6 +401,13 @@ struct StreakBadgeView: View {
                 Text("day streak")
                     .font(Font.stride.caption)
                     .foregroundStyle(.secondary)
+
+                if isRestDay && streak > 0 {
+                    Text("rest days count too")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.stride.lavenderDeep.opacity(0.7))
+                        .padding(.top, 1)
+                }
             }
             .frame(maxWidth: .infinity)
         }

@@ -10,6 +10,7 @@ final class WorkoutDetailViewModel {
 
     var showLogWorkout = false
     var showReschedule = false
+    var showDeleteLogConfirmation = false
 
     init(
         workout: WorkoutDay,
@@ -23,8 +24,16 @@ final class WorkoutDetailViewModel {
 
     // MARK: - Computed
 
+    /// Swap/skip/move are only available when:
+    /// - The workout is not completed (no log exists)
+    /// - It's not a rest day (rest days don't need rescheduling)
     var canAdjust: Bool {
-        !workout.isCompleted && workout.workoutType != .restDay
+        !workout.isCompleted && workout.log == nil && workout.workoutType != .restDay
+    }
+
+    /// True when the workout has a log attached — used to show disabled state messaging.
+    var isLocked: Bool {
+        workout.log != nil
     }
 
     var raceDate: Date {
@@ -33,6 +42,37 @@ final class WorkoutDetailViewModel {
 
     var skipButtonLabel: String {
         workout.isSkipped ? "Unmark as Skipped" : "Skip Workout"
+    }
+
+    // MARK: - Weekly mileage (for rest-day log sheet)
+
+    var weeklyLoggedMiles: Double {
+        let cal = Calendar.current
+        let weekStart = cal.date(
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
+        ) ?? Date()
+        return plan.workoutDays
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= Date() }
+            .compactMap { day in
+                guard let log = day.log else { return nil as Double? }
+                if let activityType = log.restDayActivityType, !activityType.countsTowardRunningVolume {
+                    return nil
+                }
+                return log.actualDistanceMiles
+            }
+            .reduce(0, +)
+    }
+
+    var weeklyTargetMiles: Double {
+        let cal = Calendar.current
+        let weekStart = cal.date(
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
+        ) ?? Date()
+        let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? Date()
+        return plan.workoutDays
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun && !$0.isSkipped }
+            .map { $0.targetDistanceMiles }
+            .reduce(0, +)
     }
 
     // MARK: - Actions
@@ -48,6 +88,15 @@ final class WorkoutDetailViewModel {
     func reschedule(to date: Date) {
         let conflicting = workout(on: date)
         adjustmentService.reschedule(workout, to: date, swappingWith: conflicting)
+    }
+
+    /// Deletes the workout log, re-opening swap/skip/move actions.
+    func deleteLog(context: ModelContext) {
+        guard let log = workout.log else { return }
+        workout.log = nil
+        workout.isCompleted = false
+        context.delete(log)
+        try? context.save()
     }
 
     // MARK: - Helpers

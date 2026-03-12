@@ -5,6 +5,8 @@ struct WorkoutDetailView: View {
     var units: UnitSystem = .kilometers
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var showConfetti = false
 
     private var workout: WorkoutDay { viewModel.workout }
 
@@ -58,11 +60,36 @@ struct WorkoutDetailView: View {
                 }
             }
         }
+        .overlay {
+            if showConfetti {
+                ConfettiOverlay()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                            withAnimation { showConfetti = false }
+                        }
+                    }
+            }
+        }
         .sheet(isPresented: $viewModel.showLogWorkout) {
-            LogWorkoutView(workoutDay: workout)
+            LogWorkoutView(
+                workoutDay: workout,
+                weeklyLoggedMiles: viewModel.weeklyLoggedMiles,
+                weeklyTargetMiles: viewModel.weeklyTargetMiles,
+                showConfettiOnParent: $showConfetti
+            )
         }
         .sheet(isPresented: $viewModel.showReschedule) {
             RescheduleWorkoutView(viewModel: viewModel)
+        }
+        .alert("Delete Log?", isPresented: $viewModel.showDeleteLogConfirmation) {
+            Button("Delete", role: .destructive) {
+                viewModel.deleteLog(context: modelContext)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will remove your logged data for this workout. You'll be able to swap, skip, or move it again.")
         }
     }
 
@@ -190,7 +217,7 @@ struct WorkoutDetailView: View {
                     actualStatCell(
                         icon: "road.lanes",
                         label: "Distance",
-                        value: "\(log.actualDistanceMiles.formattedDistance(unit: units)) \(units.shortLabel)"
+                        value: log.actualDistanceMiles.formattedDistance(unit: units)
                     )
                     actualStatCell(
                         icon: "timer",
@@ -208,6 +235,19 @@ struct WorkoutDetailView: View {
                             label: "Avg Heart Rate",
                             value: "\(Int(hr)) bpm"
                         )
+                    }
+                }
+
+                if !log.notes.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Notes", systemImage: "text.bubble")
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.secondary)
+                        Text(log.notes)
+                            .font(Font.stride.bodyMedium)
+                            .lineSpacing(2)
                     }
                 }
             }
@@ -263,6 +303,13 @@ struct WorkoutDetailView: View {
                     viewModel.showLogWorkout = true
                 }
                 .buttonStyle(StrideSecondaryButtonStyle())
+
+                // Delete log — escape hatch to re-open swap/skip
+                Button("Delete Log") {
+                    viewModel.showDeleteLogConfirmation = true
+                }
+                .font(Font.stride.caption)
+                .foregroundStyle(.red.opacity(0.8))
             } else {
                 Button("Log This Workout") {
                     viewModel.showLogWorkout = true
@@ -281,6 +328,20 @@ struct WorkoutDetailView: View {
                         }
                         .buttonStyle(StrideSecondaryButtonStyle())
                     }
+                } else if viewModel.isLocked && workout.workoutType != .restDay {
+                    // Show disabled swap/skip with explanation
+                    HStack(spacing: .strideSM) {
+                        Button(viewModel.skipButtonLabel) { }
+                            .buttonStyle(StrideSecondaryButtonStyle())
+                            .disabled(true)
+
+                        Button("Move") { }
+                            .buttonStyle(StrideSecondaryButtonStyle())
+                            .disabled(true)
+                    }
+                    Text("Already logged — delete log to adjust")
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }

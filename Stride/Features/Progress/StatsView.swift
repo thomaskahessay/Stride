@@ -223,22 +223,42 @@ struct StatsView: View {
                     .font(Font.stride.headingSmall)
 
                 let weeks = unifiedWeeklyMileage
-                let maxMiles = weeks.map(\.miles).max() ?? 1
+                let maxMiles = weeks.map { max($0.miles, $0.targetMiles) }.max() ?? 1
+                let chartHeight: CGFloat = 100
 
                 HStack(alignment: .bottom, spacing: 4) {
                     ForEach(weeks) { week in
-                        VStack(spacing: 4) {
-                            if week.miles > 0 {
-                                Text(String(format: "%.0f", profile.unitPreference.convert(week.miles)))
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(Color.stride.lavenderDeep)
-                            }
+                        VStack(spacing: 2) {
+                            ZStack(alignment: .bottom) {
+                                // Actual mileage bar with label on top
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(barColor(for: week))
+                                    .frame(
+                                        height: max(4, chartHeight * CGFloat(week.miles) / CGFloat(maxMiles))
+                                    )
+                                    .overlay(alignment: .top) {
+                                        if week.miles > 0 {
+                                            Text(String(format: "%.0f", profile.unitPreference.convert(week.miles)))
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .foregroundStyle(Color.stride.lavenderDeep)
+                                                .offset(y: -12)
+                                        }
+                                    }
 
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(barColor(for: week))
-                                .frame(
-                                    height: max(4, 100 * CGFloat(week.miles) / CGFloat(maxMiles))
-                                )
+                                // Target mileage dashed line marker
+                                if week.targetMiles > 0 {
+                                    let targetHeight = chartHeight * CGFloat(week.targetMiles) / CGFloat(maxMiles)
+                                    VStack(spacing: 0) {
+                                        Rectangle()
+                                            .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                                            .foregroundStyle(Color.stride.lavenderDeep.opacity(0.6))
+                                            .frame(height: 1.5)
+
+                                        Spacer(minLength: 0)
+                                    }
+                                    .frame(height: targetHeight)
+                                }
+                            }
 
                             Text(week.label)
                                 .font(.system(size: 8))
@@ -249,10 +269,25 @@ struct StatsView: View {
                 }
                 .frame(height: 130)
 
-                let weekCount = weeks.count
-                Text("\(weekCount) weeks · \(profile.unitPreference.shortLabel)")
-                    .font(Font.stride.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: .strideMD) {
+                    let weekCount = weeks.count
+                    Text("\(weekCount) weeks · \(profile.unitPreference.shortLabel)")
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    // Legend for target line
+                    HStack(spacing: 4) {
+                        Rectangle()
+                            .stroke(style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                            .foregroundStyle(Color.stride.lavenderDeep.opacity(0.6))
+                            .frame(width: 16, height: 1.5)
+                        Text("Plan target")
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }
@@ -278,6 +313,7 @@ struct StatsView: View {
         let id: Int
         let label: String
         let miles: Double
+        let targetMiles: Double
         let isCurrent: Bool
         let source: WeekSource
     }
@@ -306,13 +342,21 @@ struct StatsView: View {
             historicalBuckets[weekStart, default: 0] += run.distanceMiles
         }
 
-        // Build plan week buckets
+        // Build plan week buckets (actual logged miles + target miles)
+        // Uses effectiveDate so moved/rescheduled workouts land in the correct week.
+        // Only counts workouts from planStartDate onward for target mileage.
         var planBuckets: [Date: Double] = [:]
+        var planTargetBuckets: [Date: Double] = [:]
         if let plan = profile.activePlan {
+            let planCreated = cal.startOfDay(for: plan.generatedAt)
             for workout in plan.workoutDays {
+                let effectiveWeekStart = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: workout.effectiveDate)) ?? workout.effectiveDate
+                // Only include target mileage for workouts on or after the plan was generated
+                if workout.effectiveDate >= planCreated {
+                    planTargetBuckets[effectiveWeekStart, default: 0] += workout.targetDistanceMiles
+                }
                 guard let log = workout.log else { continue }
-                let weekStart = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: workout.date)) ?? workout.date
-                planBuckets[weekStart, default: 0] += log.actualDistanceMiles
+                planBuckets[effectiveWeekStart, default: 0] += log.actualDistanceMiles
             }
         }
 
@@ -359,11 +403,13 @@ struct StatsView: View {
 
             let label = weekStart.formatted(.dateTime.month(.abbreviated).day())
             let isCurrent = weekStart == currentWeekStart
+            let target = isHistorical ? 0 : (planTargetBuckets[weekStart] ?? 0)
 
             return WeekData(
                 id: index,
                 label: label,
                 miles: miles,
+                targetMiles: target,
                 isCurrent: isCurrent,
                 source: isHistorical ? .historical : .plan
             )

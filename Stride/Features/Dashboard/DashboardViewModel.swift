@@ -32,11 +32,12 @@ final class DashboardViewModel {
             Calendar.current.isDateInToday($0.effectiveDate)
         }
 
-        // Current week days — use the same ±3 day window as the strip so they always align.
+        // Current week days — Sunday to Saturday of the current week.
         // For past days, only include completed workouts — unlogged past plan entries are hidden
         // since the plan was generated retroactively and the user never ran those days in-app.
-        let stripStart = Calendar.current.date(byAdding: .day, value: -3, to: today) ?? today
-        let stripEnd   = Calendar.current.date(byAdding: .day, value:  4, to: today) ?? today
+        let weekday = Calendar.current.component(.weekday, from: today) // 1 = Sunday
+        let stripStart = Calendar.current.date(byAdding: .day, value: -(weekday - 1), to: today) ?? today
+        let stripEnd   = Calendar.current.date(byAdding: .day, value: 7, to: stripStart) ?? today
         currentWeekDays = plan.workoutDays
             .filter { day in
                 guard day.effectiveDate >= stripStart && day.effectiveDate < stripEnd else { return false }
@@ -59,12 +60,17 @@ final class DashboardViewModel {
         planCompletionPercent = plan.completionPercentage
 
         // Weekly miles — use effectiveDate so moved workouts count in the right week
-        let weekDays = plan.workoutDays.filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= Date() }
-        weeklyCompletedMiles = weekDays
+        // Completed: only days up to today that have a log
+        weeklyCompletedMiles = plan.workoutDays
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= Date() }
             .compactMap { $0.log?.actualDistanceMiles }
             .reduce(0, +)
-        weeklyTargetMiles = weekDays
-            .filter { $0.workoutType.isRun && !$0.isSkipped }
+        // Target: the full week's planned mileage (Sun–Sat), excluding days before the plan was generated
+        let weekEndSat = Calendar.current.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+        let planCreated = Calendar.current.startOfDay(for: plan.generatedAt)
+        let targetStart = max(weekStart, planCreated)
+        weeklyTargetMiles = plan.workoutDays
+            .filter { $0.effectiveDate >= targetStart && $0.effectiveDate < weekEndSat && $0.workoutType.isRun && !$0.isSkipped }
             .map { $0.targetDistanceMiles }
             .reduce(0, +)
 
@@ -80,27 +86,42 @@ final class DashboardViewModel {
     }
 
     // MARK: - Streak calculation
+    //
+    // Streak = consecutive days of plan adherence.
+    // - Workout day + completed → streak continues (+1)
+    // - Rest day + no log → streak continues (+1, resting IS the plan)
+    // - Rest day + any log → streak continues (+1, bonus effort)
+    // - Workout day + missed (past, not completed, not skipped) → streak breaks
+    // - Today's workout not yet done → don't break (day isn't over)
 
     private func calculateStreak(plan: TrainingPlan) -> Int {
+        let cal = Calendar.current
         var streak = 0
-        var checkDate = Calendar.current.startOfDay(for: Date())
+        var checkDate = cal.startOfDay(for: Date())
 
         while true {
             let day = plan.workoutDays.first {
-                Calendar.current.isDate($0.effectiveDate, inSameDayAs: checkDate)
+                cal.isDate($0.effectiveDate, inSameDayAs: checkDate)
             }
 
+            // No plan day for this date — we've gone past the plan boundary
             guard let day else { break }
 
+            let isToday = cal.isDateInToday(checkDate)
+
             if day.workoutType == .restDay {
-                // Rest days don't break streak but don't count
+                // Rest days always count — resting is following the plan
+                streak += 1
             } else if day.isCompleted {
                 streak += 1
+            } else if isToday {
+                // Today's workout isn't done yet — don't break, but don't count
+                // (day isn't over, skip to yesterday)
             } else if day.isPast {
-                break // missed workout breaks streak
+                break // missed workout breaks the streak
             }
 
-            guard let prev = Calendar.current.date(byAdding: .day, value: -1, to: checkDate) else { break }
+            guard let prev = cal.date(byAdding: .day, value: -1, to: checkDate) else { break }
             checkDate = prev
         }
 

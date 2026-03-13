@@ -12,13 +12,21 @@ final class DashboardViewModel {
     var currentStreak: Int = 0
     var daysToRace: Int = 0
     var planCompletionPercent: Double = 0
+    var hasCompletedReadyCheckToday: Bool = false
+    var pendingAdaptations: [AdaptationRecord] = []
 
     // MARK: - Init
     private let profile: UserProfile
+    private var modelContext: ModelContext?
 
-    init(profile: UserProfile) {
+    init(profile: UserProfile, modelContext: ModelContext? = nil) {
         self.profile = profile
+        self.modelContext = modelContext
         refresh()
+    }
+
+    func setModelContext(_ context: ModelContext) {
+        self.modelContext = context
     }
 
     // MARK: - Refresh
@@ -76,6 +84,86 @@ final class DashboardViewModel {
 
         // Streak
         currentStreak = calculateStreak(plan: plan)
+
+        // Ready Check — has one been completed today?
+        if let ctx = modelContext {
+            let todayStart = Calendar.current.startOfDay(for: Date())
+            let descriptor = FetchDescriptor<ReadinessCheck>(
+                predicate: #Predicate { $0.date >= todayStart }
+            )
+            hasCompletedReadyCheckToday = (try? ctx.fetchCount(descriptor)) ?? 0 > 0
+        }
+
+        // Run adaptation engine
+        runAdaptationEngine()
+    }
+
+    // MARK: - Adaptation Engine
+
+    private let adaptationEngine = PlanAdaptationEngine()
+
+    func runAdaptationEngine() {
+        guard let plan = profile.activePlan, let ctx = modelContext else { return }
+
+        // Fetch today's readiness checks
+        let todayStart = Calendar.current.startOfDay(for: Date())
+        let checkDescriptor = FetchDescriptor<ReadinessCheck>(
+            predicate: #Predicate { $0.date >= todayStart }
+        )
+        let readinessChecks = (try? ctx.fetch(checkDescriptor)) ?? []
+
+        let result = adaptationEngine.evaluateAndAdapt(
+            plan: plan,
+            profile: profile,
+            readinessChecks: readinessChecks,
+            context: ctx
+        )
+
+        // Merge auto-applied records into pending (show banner)
+        if !result.autoApplied.isEmpty {
+            pendingAdaptations = result.autoApplied
+        }
+
+        // Also fetch any existing undismissed records
+        let descriptor = FetchDescriptor<AdaptationRecord>(
+            predicate: #Predicate { !$0.wasDismissed && !$0.wasRevertedByUser }
+        )
+        if let existing = try? ctx.fetch(descriptor) {
+            // Show records from today only
+            pendingAdaptations = existing.filter {
+                Calendar.current.isDateInToday($0.date)
+            }
+        }
+    }
+
+    func dismissAdaptation(_ record: AdaptationRecord) {
+        record.wasDismissed = true
+        pendingAdaptations.removeAll { $0.id == record.id }
+        if let ctx = modelContext {
+            try? ctx.save()
+        }
+    }
+
+    func dismissAllAdaptations() {
+        for record in pendingAdaptations {
+            record.wasDismissed = true
+        }
+        pendingAdaptations.removeAll()
+        if let ctx = modelContext {
+            try? ctx.save()
+        }
+    }
+
+    func revertAllAdaptations() {
+        guard let plan = profile.activePlan, let ctx = modelContext else { return }
+
+        for record in pendingAdaptations {
+            if let workout = plan.workoutDays.first(where: { $0.id == record.workoutDayID }) {
+                adaptationEngine.revertAdaptation(record: record, workout: workout, context: ctx)
+            }
+        }
+        pendingAdaptations.removeAll()
+        refresh()
     }
 
     // MARK: - Factory

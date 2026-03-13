@@ -64,6 +64,13 @@ enum WorkoutType: String, Codable, CaseIterable {
         }
     }
 
+    var isHard: Bool {
+        switch self {
+        case .tempoRun, .intervalRun, .longRun: return true
+        default: return false
+        }
+    }
+
     var colorToken: String {
         switch self {
         case .easyRun: return "mint"
@@ -163,6 +170,14 @@ enum UnitSystem: String, Codable, CaseIterable {
         case .kilometers: return miles * 1.60934
         }
     }
+}
+
+enum AdaptationType: String, Codable {
+    case downgraded           // intervals→tempo, tempo→easy, etc.
+    case skippedByCoach       // engine auto-skipped a workout
+    case progressionHeld      // weekly mileage frozen at previous week's level
+    case recoveryInserted     // converted to recovery run
+    case strengthSubstituted  // hard run → strength/mobility session
 }
 
 enum RestDayActivityType: String, Codable, CaseIterable {
@@ -490,6 +505,7 @@ final class TrainingPlan {
     var entryWeek: Int
     var isActive: Bool
     var paceZonesData: Data?        // encoded PaceZones?
+    var lastAdaptationDate: Date?    // prevents re-running engine same day
 
     @Relationship(deleteRule: .cascade)
     var workoutDays: [WorkoutDay]
@@ -508,6 +524,7 @@ final class TrainingPlan {
         self.entryWeek = entryWeek
         self.isActive = true
         self.paceZonesData = nil
+        self.lastAdaptationDate = nil
         self.workoutDays = []
     }
 
@@ -556,6 +573,11 @@ final class WorkoutDay {
     var isCompleted: Bool
     var isSkipped: Bool
     var rescheduledDate: Date?      // non-nil when user has moved this workout
+    var isAdapted: Bool = false
+    var originalWorkoutType: WorkoutType?       // what the generator originally created
+    var originalTargetDistanceMiles: Double?    // original distance before adaptation
+    var originalEffortLevel: EffortLevel?       // original effort before adaptation
+    var adaptationNote: String?                 // "Downgraded from Tempo — recovery was low"
 
     @Relationship(deleteRule: .cascade)
     var log: WorkoutLog?
@@ -587,6 +609,11 @@ final class WorkoutDay {
         self.isCompleted = false
         self.isSkipped = false
         self.rescheduledDate = nil
+        self.isAdapted = false
+        self.originalWorkoutType = nil
+        self.originalTargetDistanceMiles = nil
+        self.originalEffortLevel = nil
+        self.adaptationNote = nil
         self.steps = steps
     }
 

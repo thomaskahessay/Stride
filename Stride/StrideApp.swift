@@ -13,7 +13,9 @@ struct StrideApp: App {
                 TrainingPlan.self,
                 WorkoutDay.self,
                 WorkoutLog.self,
-                HistoricalRun.self
+                HistoricalRun.self,
+                ReadinessCheck.self,
+                AdaptationRecord.self
             )
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")

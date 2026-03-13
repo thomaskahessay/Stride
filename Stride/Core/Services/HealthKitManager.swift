@@ -16,6 +16,15 @@ struct HealthKitWorkoutData {
     }
 }
 
+/// Last night's sleep data from HealthKit, used by the Ready Check feature.
+struct HealthKitSleepData {
+    let totalSleepHours: Double
+    let timeInBedHours: Double
+    let sleepEfficiency: Double // totalSleep / timeInBed (0.0–1.0)
+    let bedtime: Date
+    let wakeTime: Date
+}
+
 /// Full data bag for a historical run — handed to HistoricalRunService for persistence.
 struct HistoricalRunImportData {
     let startDate: Date
@@ -53,6 +62,7 @@ final class HealthKitManager {
         HKObjectType.quantityType(forIdentifier: .stepCount)!,
         HKObjectType.quantityType(forIdentifier: .runningSpeed)!,
         HKObjectType.quantityType(forIdentifier: .runningStrideLength)!,
+        HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
     ]
 
     private init() {}
@@ -296,6 +306,84 @@ final class HealthKitManager {
     /// Retained for backward compat with mapToRecentData.
     private func fetchAverageHeartRate(for workout: HKWorkout) async -> Double? {
         await fetchHeartRateStats(for: workout).map { $0.average }
+    }
+
+    // MARK: - Sleep Data (Ready Check)
+
+    /// Fetches last night's sleep data from HealthKit.
+    /// Looks for sleep samples between 6 PM yesterday and noon today.
+    func fetchLastNightSleep() async -> HealthKitSleepData? {
+        guard isAuthorized else { return nil }
+        guard let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { return nil }
+
+        let cal = Calendar.current
+        let now = Date()
+        let todayNoon = cal.date(bySettingHour: 12, minute: 0, second: 0, of: now) ?? now
+        let yesterdayEvening = cal.date(byAdding: .hour, value: -18, to: todayNoon) ?? now
+
+        let predicate = HKQuery.predicateForSamples(
+            withStart: yesterdayEvening,
+            end: todayNoon,
+            options: .strictStartDate
+        )
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+
+        let samples = await withCheckedContinuation { (continuation: CheckedContinuation<[HKCategorySample], Never>) in
+            let query = HKSampleQuery(
+                sampleType: sleepType,
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sort]
+            ) { _, results, _ in
+                continuation.resume(returning: (results as? [HKCategorySample]) ?? [])
+            }
+            store.execute(query)
+        }
+
+        guard !samples.isEmpty else { return nil }
+
+        // Calculate total time asleep vs time in bed.
+        // HKCategoryValueSleepAnalysis: inBed = 0, asleepUnspecified = 1,
+        // awake = 2, asleepCore = 3, asleepDeep = 4, asleepREM = 5
+        var totalSleepSeconds: Double = 0
+        var totalInBedSeconds: Double = 0
+        var earliestStart = samples.first?.startDate ?? now
+        var latestEnd = samples.first?.endDate ?? now
+
+        for sample in samples {
+            let duration = sample.endDate.timeIntervalSince(sample.startDate)
+            if sample.startDate < earliestStart { earliestStart = sample.startDate }
+            if sample.endDate > latestEnd { latestEnd = sample.endDate }
+
+            let value = sample.value
+            // asleepUnspecified(1), asleepCore(3), asleepDeep(4), asleepREM(5)
+            if value == 1 || value == 3 || value == 4 || value == 5 {
+                totalSleepSeconds += duration
+                totalInBedSeconds += duration
+            } else if value == 0 { // inBed
+                totalInBedSeconds += duration
+            }
+            // awake (2) — neither asleep nor counted as "in bed" for efficiency
+        }
+
+        // If we only got inBed samples (no stage data), treat all inBed time as sleep
+        if totalSleepSeconds == 0 && totalInBedSeconds > 0 {
+            totalSleepSeconds = totalInBedSeconds
+        }
+
+        guard totalInBedSeconds > 0 else { return nil }
+
+        let sleepHours = totalSleepSeconds / 3600.0
+        let inBedHours = totalInBedSeconds / 3600.0
+        let efficiency = totalSleepSeconds / totalInBedSeconds
+
+        return HealthKitSleepData(
+            totalSleepHours: sleepHours,
+            timeInBedHours: inBedHours,
+            sleepEfficiency: efficiency,
+            bedtime: earliestStart,
+            wakeTime: latestEnd
+        )
     }
 
     // MARK: - Utilities

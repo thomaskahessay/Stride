@@ -11,7 +11,7 @@ struct ContentView: View {
     @State private var showWorkoutDetail: WorkoutDay? = nil
 
     enum Tab {
-        case home, calendar, progress, profileTab
+        case home, plan, progress, profileTab
     }
 
     var body: some View {
@@ -34,9 +34,9 @@ struct ContentView: View {
                     }
 
                 TrainingCalendarView(profile: profile)
-                    .tag(Tab.calendar)
+                    .tag(Tab.plan)
                     .tabItem {
-                        Label("Calendar", systemImage: "calendar")
+                        Label("Plan", systemImage: "calendar")
                     }
 
                 StatsView(profile: profile)

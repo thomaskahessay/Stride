@@ -23,33 +23,11 @@ struct StatsView: View {
                         // Projected finish time — top, full width
                         finishTimeCard
 
-                        // Plan completion + race countdown + total miles row
-                        HStack(spacing: .strideMD) {
-                            overviewStat(
-                                label: "Plan Complete",
-                                value: "\(Int((profile.activePlan?.completionPercentage ?? 0) * 100))%",
-                                icon: "checkmark.seal.fill",
-                                color: Color.stride.lavender
-                            )
-                            overviewStat(
-                                label: "Days to Race",
-                                value: "\(daysToRace)",
-                                icon: "flag.checkered.2.crossed",
-                                color: Color.stride.sage
-                            )
-                            overviewStat(
-                                label: "Total \(profile.unitPreference.shortLabel.capitalized)",
-                                value: String(format: "%.0f", profile.unitPreference.convert(unifiedTotalMiles)),
-                                icon: "road.lanes",
-                                color: Color.stride.mint,
-                                subtitle: totalMilesSubtitle
-                            )
-                        }
+                        // Training progress bar
+                        trainingProgressCard
 
-                        // Running history card (only if historical data exists)
-                        if let summary = historicalSummary {
-                            runningHistoryCard(summary)
-                        }
+                        // Training stats list
+                        trainingStatsCard
 
                     }
                     .padding(.strideMD)
@@ -63,34 +41,101 @@ struct StatsView: View {
         }
     }
 
-    // MARK: - Overview stat pill
+    // MARK: - Training Progress Card
 
-    private func overviewStat(
-        label: String,
-        value: String,
-        icon: String,
-        color: Color,
-        subtitle: String? = nil
-    ) -> some View {
-        GlassCard(cornerRadius: .strideRadiusMD, padding: .strideSM) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(color)
-                Text(value)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                Text(label)
-                    .font(Font.stride.caption)
+    private var trainingProgressCard: some View {
+        let completion = profile.activePlan?.completionPercentage ?? 0
+
+        return GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("Training Progress", systemImage: "chart.bar.fill")
+                    .font(Font.stride.headingSmall)
+                    .foregroundStyle(Color.stride.lavenderDeep)
+
+                // Progress bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.stride.lavender.opacity(0.2))
+                            .frame(height: 12)
+
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.stride.lavenderDeep)
+                            .frame(width: geo.size.width * max(0, min(1, completion)), height: 12)
+                    }
+                }
+                .frame(height: 12)
+
+                Text("\(Int(completion * 100))% complete")
+                    .font(Font.stride.bodyMedium)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 8))
-                        .foregroundStyle(.tertiary)
+
+                HStack(spacing: .strideMD) {
+                    Label("\(daysToRace) days to race", systemImage: "flag.checkered.2.crossed")
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Label("\(String(format: "%.0f", profile.unitPreference.convert(unifiedTotalMiles))) \(profile.unitPreference.shortLabel) run", systemImage: "road.lanes")
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity)
         }
+    }
+
+    // MARK: - Training Stats Card
+
+    private var trainingStatsCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 0) {
+                Label("Training Stats", systemImage: "list.bullet.clipboard")
+                    .font(Font.stride.headingSmall)
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .padding(.bottom, .strideSM)
+
+                if let pace = formattedAvgPace {
+                    statRow(icon: "gauge.open.with.lines.needle.33percent", label: "Avg Pace", value: pace, color: Color.stride.sky)
+                    Divider().padding(.leading, 32)
+                }
+
+                statRow(icon: "trophy.fill", label: "Longest Run", value: longestRunFormatted, color: Color.stride.warmOrange)
+                Divider().padding(.leading, 32)
+
+                statRow(icon: "chart.line.uptrend.xyaxis", label: "Weekly Avg", value: weeklyAvgFormatted, color: Color.stride.lavenderDeep)
+                Divider().padding(.leading, 32)
+
+                statRow(icon: "checkmark.circle.fill", label: "Runs Logged", value: "\(runsLogged)", color: Color.stride.mint)
+
+                if let racePace = estimatedRacePace {
+                    Divider().padding(.leading, 32)
+                    statRow(icon: "figure.run", label: "Est. Race Pace", value: racePace, color: Color.stride.violet)
+                }
+            }
+        }
+    }
+
+    // MARK: - Stat Row Helper
+
+    private func statRow(icon: String, label: String, value: String, color: Color) -> some View {
+        HStack(spacing: .strideSM) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+                .frame(width: 24, height: 24)
+
+            Text(label)
+                .font(Font.stride.bodyMedium)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.stride.lavenderDeep)
+        }
+        .padding(.vertical, .strideSM)
     }
 
     // MARK: - Finish Time Card
@@ -180,77 +225,6 @@ struct StatsView: View {
         }
     }
 
-    // MARK: - Running History Card
-
-    private func runningHistoryCard(_ summary: HistoricalSummary) -> some View {
-        GlassCard {
-            VStack(alignment: .leading, spacing: .strideMD) {
-                HStack {
-                    Label("Your Running History", systemImage: "figure.run")
-                        .font(Font.stride.headingSmall)
-                        .foregroundStyle(Color.stride.lavenderDeep)
-                    Spacer()
-                    HStack(spacing: 4) {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.red.opacity(0.5))
-                        Text("Apple Health")
-                            .font(Font.stride.label)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .strideSM) {
-                    historyStat(
-                        value: "\(summary.totalRuns)",
-                        label: "Runs Imported",
-                        icon: "checkmark.circle.fill",
-                        color: Color.stride.mint
-                    )
-                    historyStat(
-                        value: String(format: "%.1f", profile.unitPreference.convert(summary.avgWeeklyMiles)),
-                        label: "\(profile.unitPreference.shortLabel)/week avg",
-                        icon: "chart.line.uptrend.xyaxis",
-                        color: Color.stride.lavenderDeep
-                    )
-                    historyStat(
-                        value: String(format: "%.1f", profile.unitPreference.convert(summary.longestRunMiles)),
-                        label: "Longest Run (\(profile.unitPreference.shortLabel))",
-                        icon: "trophy.fill",
-                        color: Color.stride.warmOrange
-                    )
-                    historyStat(
-                        value: summary.formattedAvgPace(units: profile.unitPreference),
-                        label: "Avg Pace",
-                        icon: "gauge.open.with.lines.needle.33percent",
-                        color: Color.stride.sky
-                    )
-                }
-            }
-        }
-    }
-
-    private func historyStat(value: String, label: String, icon: String, color: Color) -> some View {
-        VStack(spacing: .strideXS) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundStyle(color.opacity(0.7))
-            Text(value)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.stride.lavenderDeep)
-            Text(label)
-                .font(Font.stride.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, .strideSM)
-        .background(
-            RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
-                .fill(color.opacity(0.06))
-        )
-    }
-
     // MARK: - Computed data
 
     /// Cumulative projection blending all training data + optional manual race time.
@@ -286,36 +260,91 @@ struct StatsView: View {
         return historicalMiles + planMiles
     }
 
-    /// Subtitle for the total miles stat showing the date range.
-    private var totalMilesSubtitle: String? {
-        guard let earliest = historicalRuns.first?.date else { return nil }
-        return "since \(earliest.formatted(.dateTime.month(.abbreviated).day()))"
+    /// Estimated race pace from the finish time projection, in user's preferred units.
+    private var estimatedRacePace: String? {
+        guard let projection = computedCumulativeProjection else { return nil }
+        let raceDistance: Double = profile.unitPreference == .miles
+            ? profile.raceType.distanceMiles
+            : profile.raceType.distanceKm
+        guard raceDistance > 0 else { return nil }
+        let paceSeconds = Double(projection.projectedSeconds) / raceDistance
+        let mins = Int(paceSeconds) / 60
+        let secs = Int(paceSeconds) % 60
+        return String(format: "%d:%02d /%@", mins, secs, profile.unitPreference.shortLabel)
     }
 
-    /// Summary of historical runs for the history card.
-    private var historicalSummary: HistoricalSummary? {
+    /// Number of runs logged (plan + historical).
+    private var runsLogged: Int {
+        let planRuns = profile.activePlan?.workoutDays
+            .filter { $0.workoutType.isRun && $0.log != nil }
+            .count ?? 0
+        return planRuns + historicalRuns.count
+    }
+
+    /// Weighted average pace across all logged runs, formatted for display.
+    private var formattedAvgPace: String? {
+        var totalPace = 0.0
+        var count = 0
+
+        // Historical runs
+        for run in historicalRuns {
+            totalPace += run.averagePaceSecondsPerMile
+            count += 1
+        }
+
+        // Plan logged runs
+        if let workoutDays = profile.activePlan?.workoutDays {
+            for day in workoutDays where day.workoutType.isRun {
+                if let log = day.log, log.actualDistanceMiles > 0, log.actualDurationSeconds > 0 {
+                    let pace = Double(log.actualDurationSeconds) / log.actualDistanceMiles
+                    totalPace += pace
+                    count += 1
+                }
+            }
+        }
+
+        guard count > 0 else { return nil }
+        let avgPaceMi = totalPace / Double(count)
+        let paceSeconds = profile.unitPreference == .miles ? avgPaceMi : avgPaceMi / 1.60934
+        let mins = Int(paceSeconds) / 60
+        let secs = Int(paceSeconds) % 60
+        return String(format: "%d:%02d /%@", mins, secs, profile.unitPreference.shortLabel)
+    }
+
+    /// Longest run across historical + plan logged runs, in user's preferred units.
+    private var longestRunFormatted: String {
+        let historicalMax = historicalRuns.max(by: { $0.distanceMiles < $1.distanceMiles })?.distanceMiles ?? 0
+        let planMax = profile.activePlan?.workoutDays
+            .compactMap { $0.log?.actualDistanceMiles }
+            .max() ?? 0
+        let longestMiles = max(historicalMax, planMax)
+        return String(format: "%.1f %@", profile.unitPreference.convert(longestMiles), profile.unitPreference.shortLabel)
+    }
+
+    /// Weekly average distance in user's preferred units.
+    private var weeklyAvgFormatted: String {
+        // Try historical-based calculation first
         let runs = historicalRuns
-        guard !runs.isEmpty else { return nil }
+        if !runs.isEmpty, let earliest = runs.first?.date, let latest = runs.last?.date {
+            let totalMiles = runs.reduce(0) { $0 + $1.distanceMiles }
+            let cal = Calendar.current
+            let weeksSpanned = max(1, (cal.dateComponents([.weekOfYear], from: earliest, to: latest).weekOfYear ?? 0) + 1)
+            let avgWeekly = totalMiles / Double(weeksSpanned)
+            return String(format: "%.1f %@/wk", profile.unitPreference.convert(avgWeekly), profile.unitPreference.shortLabel)
+        }
 
-        let totalMiles = runs.reduce(0) { $0 + $1.distanceMiles }
-        let longestRun = runs.max(by: { $0.distanceMiles < $1.distanceMiles })
-        let totalPaceSum = runs.reduce(0.0) { $0 + $1.averagePaceSecondsPerMile }
-        let avgPace = totalPaceSum / Double(runs.count)
+        // Fallback: plan logged runs
+        let planMiles = profile.activePlan?.workoutDays
+            .compactMap { $0.log?.actualDistanceMiles }
+            .reduce(0, +) ?? 0
+        if planMiles > 0, let plan = profile.activePlan {
+            let totalDays = plan.workoutDays.count
+            let weeks = max(1, totalDays / 7)
+            let avg = planMiles / Double(weeks)
+            return String(format: "%.1f %@/wk", profile.unitPreference.convert(avg), profile.unitPreference.shortLabel)
+        }
 
-        let cal = Calendar.current
-        guard let earliest = runs.first?.date, let latest = runs.last?.date else { return nil }
-        let weeksSpanned = max(1, (cal.dateComponents([.weekOfYear], from: earliest, to: latest).weekOfYear ?? 0) + 1)
-        let avgWeeklyMiles = totalMiles / Double(weeksSpanned)
-
-        return HistoricalSummary(
-            totalRuns: runs.count,
-            totalMiles: totalMiles,
-            avgWeeklyMiles: avgWeeklyMiles,
-            avgPaceSecondsPerMile: avgPace,
-            longestRunMiles: longestRun?.distanceMiles ?? 0,
-            longestRunDate: longestRun?.date,
-            earliestDate: earliest
-        )
+        return "—"
     }
 }
 

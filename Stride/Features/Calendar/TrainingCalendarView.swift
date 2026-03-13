@@ -60,10 +60,16 @@ struct TrainingCalendarView: View {
                             }
                         }
 
-                        legendRow
+                        weeklyMileageBars
 
-                        if !recentWorkouts.isEmpty {
-                            recentWorkoutsSection
+                        if let todayCard = todayWorkoutDay {
+                            todayWorkoutCard(todayCard)
+                        }
+
+                        thisWeekSummary
+
+                        if !recentItems.isEmpty {
+                            recentRunsSection
                         }
                     }
                     .padding(.strideMD)
@@ -94,79 +100,321 @@ struct TrainingCalendarView: View {
     // MARK: - Month Header
 
     private var monthHeader: some View {
-        HStack {
-            Button { shiftMonth(by: -1) } label: {
-                Image(systemName: "chevron.left")
-                    .foregroundStyle(Color.stride.lavenderDeep)
-                    .padding(.strideSM)
+        VStack(spacing: 4) {
+            HStack {
+                Button { shiftMonth(by: -1) } label: {
+                    Image(systemName: "chevron.left")
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                        .padding(.strideSM)
+                }
+                Spacer()
+                Text(displayedMonth.formatted(.dateTime.month(.wide).year()))
+                    .font(Font.stride.headingMedium)
+                Spacer()
+                Button { shiftMonth(by: 1) } label: {
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                        .padding(.strideSM)
+                }
             }
-            Spacer()
-            Text(displayedMonth.formatted(.dateTime.month(.wide).year()))
-                .font(Font.stride.headingMedium)
-            Spacer()
-            Button { shiftMonth(by: 1) } label: {
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(Color.stride.lavenderDeep)
-                    .padding(.strideSM)
+
+            let stats = monthStats
+            if stats.totalDistance > 0 || stats.runCount > 0 {
+                Text("\(stats.totalDistance.formattedDistance(unit: profile.unitPreference)) this month \u{2022} \(stats.runCount) runs")
+                    .font(Font.stride.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    // MARK: - Legend
+    // MARK: - Month Stats
 
-    private var legendRow: some View {
-        GlassCard(padding: .strideSM) {
-            HStack(spacing: .strideMD) {
-                ForEach([WorkoutType.easyRun, .longRun, .tempoRun, .intervalRun, .restDay], id: \.self) { type in
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(type.accentColor)
-                            .frame(width: 8, height: 8)
-                        Text(type == .easyRun ? "Easy" :
-                             type == .longRun ? "Long" :
-                             type == .tempoRun ? "Tempo" :
-                             type == .intervalRun ? "Speed" : "Rest")
+    private var monthStats: (totalDistance: Double, runCount: Int) {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: displayedMonth) else {
+            return (0, 0)
+        }
+
+        // Plan workout logs in this month
+        let planWorkouts = (profile.activePlan?.workoutDays ?? [])
+            .filter { $0.isCompleted && $0.effectiveDate >= monthInterval.start && $0.effectiveDate < monthInterval.end }
+        let planDistance = planWorkouts.reduce(0.0) { $0 + ($1.log?.actualDistanceMiles ?? 0) }
+
+        // Historical runs in this month
+        let monthRuns = historicalRuns.filter { $0.date >= monthInterval.start && $0.date < monthInterval.end }
+        let hkDistance = monthRuns.reduce(0.0) { $0 + $1.distanceMiles }
+
+        return (planDistance + hkDistance, planWorkouts.count + monthRuns.count)
+    }
+
+    // MARK: - Weekly Mileage Bars
+
+    private var weeklyMileageBars: some View {
+        let weeks = weeklyMileageData
+        let maxDistance = weeks.map(\.distance).max() ?? 1
+
+        return GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Text("Weekly Mileage")
+                    .font(Font.stride.headingSmall)
+
+                ForEach(Array(weeks.enumerated()), id: \.offset) { index, week in
+                    HStack(spacing: .strideSM) {
+                        Text("Week \(index + 1)")
                             .font(Font.stride.caption)
                             .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .leading)
+
+                        GeometryReader { geo in
+                            let fraction = maxDistance > 0 ? week.distance / maxDistance : 0
+                            Capsule()
+                                .fill(Color.stride.lavenderDeep)
+                                .frame(width: max(4, geo.size.width * fraction))
+                        }
+                        .frame(height: 12)
+
+                        Text(week.distance.formattedDistance(unit: profile.unitPreference))
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 60, alignment: .trailing)
                     }
                 }
-                // Historical run indicator
-                HStack(spacing: 4) {
-                    Image(systemName: "figure.run")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Color.stride.lavenderDeep.opacity(0.6))
-                    Text("History")
-                        .font(Font.stride.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
-            .frame(maxWidth: .infinity)
         }
     }
 
-    // MARK: - Recent Workouts Section
+    private var weeklyMileageData: [(weekStart: Date, distance: Double)] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: displayedMonth) else { return [] }
 
-    private var recentWorkoutsSection: some View {
+        // Collect ISO weeks that overlap this month
+        var weekStarts: [Date] = []
+        var current = monthInterval.start
+        while current < monthInterval.end {
+            let weekStart = calendar.dateInterval(of: .weekOfYear, for: current)?.start ?? current
+            if !weekStarts.contains(where: { calendar.isDate($0, inSameDayAs: weekStart) }) {
+                weekStarts.append(weekStart)
+            }
+            current = calendar.date(byAdding: .day, value: 7, to: current) ?? monthInterval.end
+        }
+
+        return weekStarts.map { weekStart in
+            let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+
+            let planDist = (profile.activePlan?.workoutDays ?? [])
+                .filter { $0.isCompleted && $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd }
+                .reduce(0.0) { $0 + ($1.log?.actualDistanceMiles ?? 0) }
+
+            let hkDist = historicalRuns
+                .filter { $0.date >= weekStart && $0.date < weekEnd }
+                .reduce(0.0) { $0 + $1.distanceMiles }
+
+            return (weekStart, planDist + hkDist)
+        }
+    }
+
+    // MARK: - Today's Workout Card
+
+    private var todayWorkoutDay: WorkoutDay? {
+        let now = DateProvider.shared.now
+        return profile.activePlan?.workoutDays.first {
+            calendar.isDate($0.effectiveDate, inSameDayAs: now) && $0.workoutType != .restDay
+        }
+    }
+
+    private func todayWorkoutCard(_ day: WorkoutDay) -> some View {
+        Button {
+            selectedDay = day
+            showWorkoutDetail = true
+        } label: {
+            GlassCard(padding: .strideSM) {
+                HStack(spacing: .strideSM) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(day.workoutType.accentColor)
+                        .frame(width: 4)
+                        .padding(.vertical, 2)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(DateProvider.shared.now.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.secondary)
+
+                        Text(day.workoutType.rawValue)
+                            .font(Font.stride.bodyMedium)
+
+                        if day.isCompleted, let log = day.log {
+                            Text(log.actualDistanceMiles.formattedDistance(unit: profile.unitPreference))
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            let parts = [
+                                day.targetDistanceMiles > 0 ? day.targetDistanceMiles.formattedDistance(unit: profile.unitPreference) : nil,
+                                day.targetDurationMinutes > 0 ? "\(day.targetDurationMinutes):00" : nil
+                            ].compactMap { $0 }
+                            if !parts.isEmpty {
+                                Text(parts.joined(separator: " \u{2022} "))
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    if day.isCompleted {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Color.stride.mint)
+                            .font(.system(size: 22))
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - This Week Summary
+
+    private var thisWeekSummary: some View {
+        let stats = currentWeekStats
+        return GlassCard {
+            HStack(spacing: 0) {
+                summaryItem(value: stats.distance.formattedDistance(unit: profile.unitPreference), label: "Distance")
+                Divider().frame(height: 32)
+                summaryItem(value: "\(stats.runCount)", label: "Runs")
+                Divider().frame(height: 32)
+                summaryItem(value: "\(stats.streak) day", label: "Streak")
+            }
+        }
+    }
+
+    private func summaryItem(value: String, label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+            Text(label)
+                .font(Font.stride.label)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var currentWeekStats: (distance: Double, runCount: Int, streak: Int) {
+        let now = DateProvider.shared.now
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else {
+            return (0, 0, 0)
+        }
+
+        let planWorkouts = (profile.activePlan?.workoutDays ?? [])
+            .filter { $0.isCompleted && $0.effectiveDate >= weekInterval.start && $0.effectiveDate < weekInterval.end }
+        let planDist = planWorkouts.reduce(0.0) { $0 + ($1.log?.actualDistanceMiles ?? 0) }
+
+        let weekRuns = historicalRuns
+            .filter { $0.date >= weekInterval.start && $0.date < weekInterval.end }
+        let hkDist = weekRuns.reduce(0.0) { $0 + $1.distanceMiles }
+
+        let streak = calculateStreak()
+
+        return (planDist + hkDist, planWorkouts.count + weekRuns.count, streak)
+    }
+
+    private func calculateStreak() -> Int {
+        guard let plan = profile.activePlan else { return 0 }
+        let cal = Calendar.current
+        let now = DateProvider.shared.now
+        var streak = 0
+        var hasCompletedAny = false
+        var checkDate = cal.startOfDay(for: now)
+
+        while true {
+            let day = plan.workoutDays.first {
+                cal.isDate($0.effectiveDate, inSameDayAs: checkDate)
+            }
+
+            guard let day else { break }
+
+            let isToday = cal.isDate(checkDate, inSameDayAs: now)
+
+            if day.workoutType == .restDay || day.workoutType == .strengthDay {
+                if hasCompletedAny { streak += 1 }
+            } else if day.isCompleted {
+                hasCompletedAny = true
+                streak += 1
+            } else if isToday {
+                // Today's workout isn't done yet — don't break, don't count
+            } else if day.isPast && day.workoutType.isHard {
+                break
+            } else if day.isPast {
+                if hasCompletedAny { streak += 1 }
+            }
+
+            guard let prev = cal.date(byAdding: .day, value: -1, to: checkDate) else { break }
+            checkDate = prev
+        }
+
+        return streak
+    }
+
+    // MARK: - Recent Runs Section
+
+    private enum RecentItem: Identifiable {
+        case planned(WorkoutDay)
+        case historical(HistoricalRun)
+
+        var id: String {
+            switch self {
+            case .planned(let day): return "plan-\(day.id)"
+            case .historical(let run): return "hk-\(run.id)"
+            }
+        }
+
+        var date: Date {
+            switch self {
+            case .planned(let day): return day.effectiveDate
+            case .historical(let run): return run.date
+            }
+        }
+    }
+
+    private var recentItems: [RecentItem] {
+        let now = DateProvider.shared.now
+
+        let planItems: [RecentItem] = (profile.activePlan?.workoutDays ?? [])
+            .filter { $0.isCompleted && $0.effectiveDate <= now }
+            .map { .planned($0) }
+
+        let hkItems: [RecentItem] = historicalRuns
+            .filter { $0.date <= now }
+            .map { .historical($0) }
+
+        return (planItems + hkItems)
+            .sorted { $0.date > $1.date }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    private var recentRunsSection: some View {
         VStack(alignment: .leading, spacing: .strideSM) {
-            Text("Recent Workouts")
+            Text("Recent Runs")
                 .font(Font.stride.headingMedium)
                 .padding(.horizontal, 2)
 
-            ForEach(recentWorkouts, id: \.id) { day in
-                RecentWorkoutCard(day: day, units: profile.unitPreference) {
-                    selectedDay = day
-                    showWorkoutDetail = true
+            ForEach(recentItems) { item in
+                switch item {
+                case .planned(let day):
+                    RecentWorkoutCard(day: day, units: profile.unitPreference) {
+                        selectedDay = day
+                        showWorkoutDetail = true
+                    }
+                case .historical(let run):
+                    RecentHistoricalRunCard(run: run, units: profile.unitPreference) {
+                        selectedHistoricalRun = run
+                        showHistoricalRunDetail = true
+                    }
                 }
             }
         }
-    }
-
-    private var recentWorkouts: [WorkoutDay] {
-        let now = DateProvider.shared.now
-        let cutoff = calendar.date(byAdding: .day, value: -7, to: now) ?? now
-        return (profile.activePlan?.workoutDays ?? [])
-            .filter { $0.isCompleted && $0.effectiveDate >= cutoff && $0.effectiveDate <= now }
-            .sorted { $0.effectiveDate > $1.effectiveDate }
     }
 
     // MARK: - Data Helpers
@@ -183,7 +431,6 @@ struct TrainingCalendarView: View {
     }
 
     private func historicalRun(for date: Date) -> HistoricalRun? {
-        // Only show historical runs on past dates
         guard date < calendar.startOfDay(for: DateProvider.shared.now) else { return nil }
         return historicalRuns.first { calendar.isDate($0.date, inSameDayAs: date) }
     }
@@ -269,7 +516,6 @@ private struct CalendarDayCell: View {
                     .frame(width: 6, height: 6)
             }
         } else if historicalRun != nil {
-            // Small running figure for imported HealthKit history
             Image(systemName: "figure.run")
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(Color.stride.lavenderDeep.opacity(0.65))
@@ -343,7 +589,7 @@ struct HistoricalRunDetailSheet: View {
                                         run.startDate.formatted(.dateTime.weekday(.wide).month(.wide).day()),
                                         systemImage: "calendar"
                                     )
-                                    Text("·")
+                                    Text("\u{00B7}")
                                     Text(run.startDate.formatted(.dateTime.hour().minute()))
                                 }
                                 .font(Font.stride.caption)
@@ -580,6 +826,54 @@ private struct RecentWorkoutCard: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color.stride.mint)
                         .font(.system(size: 18))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Recent Historical Run Card
+
+private struct RecentHistoricalRunCard: View {
+    let run: HistoricalRun
+    let units: UnitSystem
+    let onTap: () -> Void
+
+    private var dateText: String {
+        run.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            GlassCard(padding: .strideSM) {
+                HStack(spacing: .strideSM) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.stride.lavenderDeep.opacity(0.6))
+                        .frame(width: 4)
+                        .padding(.vertical, 2)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(run.isIndoorRun ? "Indoor Run" : "Outdoor Run")
+                            .font(Font.stride.bodyMedium)
+                        Text(dateText)
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(run.distanceMiles.formattedDistance(unit: units))
+                            .font(Font.stride.bodyMedium)
+                        Text(run.formattedDuration)
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Image(systemName: "figure.run")
+                        .foregroundStyle(Color.stride.lavenderDeep.opacity(0.65))
+                        .font(.system(size: 16))
                 }
             }
         }

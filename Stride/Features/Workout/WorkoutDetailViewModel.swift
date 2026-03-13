@@ -43,11 +43,12 @@ final class WorkoutDetailViewModel {
 
     var weeklyLoggedMiles: Double {
         let cal = Calendar.current
+        let now = DateProvider.shared.now
         let weekStart = cal.date(
-            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-        ) ?? Date()
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        ) ?? now
         return plan.workoutDays
-            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= Date() }
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= now }
             .compactMap { day in
                 guard let log = day.log else { return nil as Double? }
                 if let activityType = log.restDayActivityType, !activityType.countsTowardRunningVolume {
@@ -60,14 +61,28 @@ final class WorkoutDetailViewModel {
 
     var weeklyTargetMiles: Double {
         let cal = Calendar.current
+        let now = DateProvider.shared.now
         let weekStart = cal.date(
-            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-        ) ?? Date()
-        let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? Date()
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        ) ?? now
+        let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
         return plan.workoutDays
             .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun && !$0.isSkipped }
             .map { $0.targetDistanceMiles }
             .reduce(0, +)
+    }
+
+    // MARK: - Readiness Check
+
+    /// Fetches the readiness check recorded on the same day as this workout, if any.
+    func readinessCheck(context: ModelContext) -> ReadinessCheck? {
+        let cal = Calendar.current
+        let workoutDate = cal.startOfDay(for: workout.effectiveDate)
+        let nextDay = cal.date(byAdding: .day, value: 1, to: workoutDate) ?? workoutDate
+        let descriptor = FetchDescriptor<ReadinessCheck>(
+            predicate: #Predicate { $0.date >= workoutDate && $0.date < nextDay }
+        )
+        return try? context.fetch(descriptor).first
     }
 
     // MARK: - Actions
@@ -89,7 +104,7 @@ final class WorkoutDetailViewModel {
         try? context.save()
     }
 
-    /// Reverts any adaptation on this workout, restoring original values.
+    /// Reverts any readiness-based adaptation on this workout, restoring original values.
     func revertAdaptation(context: ModelContext) {
         guard workout.isAdapted else { return }
 
@@ -102,6 +117,7 @@ final class WorkoutDetailViewModel {
             let engine = PlanAdaptationEngine()
             engine.revertAdaptation(record: record, workout: workout, context: context)
         } else {
+            // Fallback: restore directly from stored originals
             if let origType = workout.originalWorkoutType {
                 workout.workoutType = origType
                 workout.workoutTitle = origType.rawValue

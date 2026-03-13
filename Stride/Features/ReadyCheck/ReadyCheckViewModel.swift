@@ -5,15 +5,15 @@ import SwiftData
 final class ReadyCheckViewModel {
 
     // MARK: - Input State (sliders)
-    var sleepQuality: Int = 3
-    var muscleSoreness: Int = 3
-    var energyLevel: Int = 3
-    var motivation: Int = 3
+    var sleepQuality: Int = 3 { didSet { resetIfEvaluated() } }
+    var muscleSoreness: Int = 3 { didSet { resetIfEvaluated() } }
+    var energyLevel: Int = 3 { didSet { resetIfEvaluated() } }
+    var motivation: Int = 3 { didSet { resetIfEvaluated() } }
 
     // MARK: - HealthKit Sleep
     var sleepData: HealthKitSleepData?
     var isFetchingSleep = false
-    var useSleepOverride = false // user disagrees with HK data
+    var useSleepOverride = false { didSet { resetIfEvaluated() } } // user disagrees with HK data
 
     // MARK: - Output
     var result: ReadinessEngine.Result?
@@ -72,21 +72,8 @@ final class ReadyCheckViewModel {
         persistCheck(accepted: true)
     }
 
-    /// Accepts the recommendation and applies the adaptation to today's workout.
-    func acceptWithAdaptation() {
-        guard let result else { return }
-        persistCheck(accepted: true)
-
-        guard let workout = todayWorkout, result.recommendation != .sendIt else { return }
-        let engine = PlanAdaptationEngine()
-        engine.applyReadinessAdaptation(
-            workout: workout,
-            recommendation: result.recommendation,
-            context: modelContext
-        )
-    }
-
-    /// Accepts the readiness check but keeps the original workout unchanged.
+    /// Accepts the readiness check. The ready-check is advisory — it does not
+    /// modify the planned workout. The user decides what to do.
     func acceptWithoutAdaptation() {
         persistCheck(accepted: true)
     }
@@ -120,7 +107,7 @@ final class ReadyCheckViewModel {
     private var yesterdayRPE: Int? {
         guard let plan = profile.activePlan else { return nil }
         let cal = Calendar.current
-        let yesterday = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: Date()))
+        let yesterday = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: DateProvider.shared.now))
         return plan.workoutDays
             .first { day in
                 guard let yesterday else { return false }
@@ -133,10 +120,10 @@ final class ReadyCheckViewModel {
         guard let plan = profile.activePlan else { return 0 }
         let cal = Calendar.current
         let weekStart = cal.date(
-            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-        ) ?? Date()
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: DateProvider.shared.now)
+        ) ?? DateProvider.shared.now
         return plan.workoutDays
-            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= Date() }
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= DateProvider.shared.now }
             .compactMap { $0.log?.actualDistanceMiles }
             .reduce(0, +)
     }
@@ -144,10 +131,11 @@ final class ReadyCheckViewModel {
     private var weeklyTargetMileage: Double {
         guard let plan = profile.activePlan else { return 0 }
         let cal = Calendar.current
+        let now = DateProvider.shared.now
         let weekStart = cal.date(
-            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-        ) ?? Date()
-        let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? Date()
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        ) ?? now
+        let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
         return plan.workoutDays
             .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun && !$0.isSkipped }
             .map { $0.targetDistanceMiles }
@@ -155,7 +143,7 @@ final class ReadyCheckViewModel {
     }
 
     private var daysToRace: Int {
-        let days = Calendar.current.dateComponents([.day], from: Date(), to: profile.raceDate).day ?? 0
+        let days = Calendar.current.dateComponents([.day], from: DateProvider.shared.now, to: profile.raceDate).day ?? 0
         return max(0, days)
     }
 
@@ -183,6 +171,14 @@ final class ReadyCheckViewModel {
         case 7..<8: return 4
         default: return 5
         }
+    }
+
+    // MARK: - Reset on Input Change
+
+    private func resetIfEvaluated() {
+        guard hasEvaluated else { return }
+        hasEvaluated = false
+        result = nil
     }
 
     // MARK: - Display Helpers

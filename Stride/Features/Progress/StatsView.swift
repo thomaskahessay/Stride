@@ -362,7 +362,7 @@ struct StatsView: View {
     /// Shows up to 12 weeks of history before the plan, plus all plan weeks.
     private var unifiedWeeklyMileage: [WeekData] {
         let cal = Calendar.current
-        let today = Date()
+        let today = DateProvider.shared.now
         let currentWeekStart = cal.date(from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)) ?? today
 
         // Determine plan start week (if plan exists)
@@ -475,7 +475,7 @@ struct StatsView: View {
     }
 
     private var daysToRace: Int {
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = Calendar.current.startOfDay(for: DateProvider.shared.now)
         let components = Calendar.current.dateComponents([.day], from: today, to: profile.raceDate)
         return max(0, components.day ?? 0)
     }

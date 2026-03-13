@@ -71,6 +71,12 @@ enum WorkoutType: String, Codable, CaseIterable {
         }
     }
 
+    /// Key workouts that should not be silently skipped — long run, tempo, intervals.
+    var isFixed: Bool { isHard }
+
+    /// Easy runs, recovery, strength, rest — can be moved or skipped without consequence.
+    var isFlexible: Bool { !isHard }
+
     var colorToken: String {
         switch self {
         case .easyRun: return "mint"
@@ -433,6 +439,7 @@ final class UserProfile {
     var sleepHoursPerNight: Double
     var activityLevel: ActivityLevel
     var doesStrengthTraining: Bool
+    var longestRecentRunMiles: Double  // user's longest recent run — anchors long run progression
 
     @Relationship(deleteRule: .cascade)
     var activePlan: TrainingPlan?
@@ -472,6 +479,7 @@ final class UserProfile {
         self.sleepHoursPerNight = 7
         self.activityLevel = .mixed
         self.doesStrengthTraining = false
+        self.longestRecentRunMiles = 0
     }
 
     var recentRaceTime: RaceTime? {
@@ -539,14 +547,14 @@ final class TrainingPlan {
     }
 
     var currentWeekNumber: Int {
-        let days = Calendar.current.dateComponents([.day], from: planStartDate, to: Date()).day ?? 0
+        let days = Calendar.current.dateComponents([.day], from: planStartDate, to: DateProvider.shared.now).day ?? 0
         return max(1, min(totalWeeks, (days / 7) + 1))
     }
 
     /// Timeline-based progress: how far through the plan calendar we are (0.0–1.0).
     var completionPercentage: Double {
         let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
+        let today = cal.startOfDay(for: DateProvider.shared.now)
         let start = cal.startOfDay(for: planStartDate)
         let end = cal.startOfDay(for: raceDate)
         let totalDays = cal.dateComponents([.day], from: start, to: end).day ?? 1
@@ -633,11 +641,11 @@ final class WorkoutDay {
     }
 
     var isToday: Bool {
-        Calendar.current.isDateInToday(effectiveDate)
+        Calendar.current.isDate(effectiveDate, inSameDayAs: DateProvider.shared.now)
     }
 
     var isPast: Bool {
-        effectiveDate < Calendar.current.startOfDay(for: Date())
+        effectiveDate < Calendar.current.startOfDay(for: DateProvider.shared.now)
     }
 
     var isMissed: Bool {
@@ -657,6 +665,8 @@ final class WorkoutLog {
     var averageHeartRate: Double?
     var averagePaceSecPerMile: Int? // nil = not recorded
     var restDayActivityType: RestDayActivityType? // nil = normal workout day log
+    var actualWorkoutType: WorkoutType? // nil = matched planned type; set when user overrides
+    var strengthCompleted: Bool // true when user also completed strength on this day
 
     init(
         actualDistanceMiles: Double = 0,
@@ -666,7 +676,9 @@ final class WorkoutLog {
         sourceHealthKit: Bool = false,
         averageHeartRate: Double? = nil,
         averagePaceSecPerMile: Int? = nil,
-        restDayActivityType: RestDayActivityType? = nil
+        restDayActivityType: RestDayActivityType? = nil,
+        actualWorkoutType: WorkoutType? = nil,
+        strengthCompleted: Bool = false
     ) {
         self.id = UUID()
         self.loggedAt = Date()
@@ -678,6 +690,8 @@ final class WorkoutLog {
         self.averageHeartRate = averageHeartRate
         self.averagePaceSecPerMile = averagePaceSecPerMile
         self.restDayActivityType = restDayActivityType
+        self.actualWorkoutType = actualWorkoutType
+        self.strengthCompleted = strengthCompleted
     }
 
     var formattedDuration: String {

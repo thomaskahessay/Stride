@@ -38,6 +38,12 @@ struct LogWorkoutView: View {
     @State private var distanceText: String = ""
     @FocusState private var isDistanceFocused: Bool
 
+    // Strength day → run override
+    @State private var logRunOnStrengthDay = false
+
+    // Workout type override — pre-filled from planned type, changeable
+    @State private var selectedWorkoutType: WorkoutType = .easyRun
+
     // Rest-day specific
     @State private var restDayActivityType: RestDayActivityType = .crossTraining
 
@@ -45,6 +51,10 @@ struct LogWorkoutView: View {
 
     private var isRestDayLog: Bool {
         workoutDay?.workoutType == .restDay
+    }
+
+    private var isStrengthDayLog: Bool {
+        workoutDay?.workoutType == .strengthDay && !logRunOnStrengthDay
     }
 
     private var isCrossTrainingLog: Bool {
@@ -57,31 +67,39 @@ struct LogWorkoutView: View {
                 LinearGradient.strideBackground.ignoresSafeArea()
 
                 Group {
-                    switch mode {
-                    case .selectSource:
-                        LogSourcePickerView(
-                            recentWorkoutCount: healthKit.recentWorkouts.count,
-                            onHealthKit: { mode = .pickFromHealthKit },
-                            onManual: {
-                                prefillFromWorkoutDay()
-                                mode = .manualEntry
-                            }
-                        )
-                        .task { await healthKit.fetchRecentWorkouts() }
+                    if isStrengthDayLog {
+                        strengthDayForm
+                    } else {
+                        switch mode {
+                        case .selectSource:
+                            LogSourcePickerView(
+                                recentWorkoutCount: healthKit.recentWorkouts.count,
+                                isRefreshing: healthKit.isRefreshing,
+                                onHealthKit: { mode = .pickFromHealthKit },
+                                onManual: {
+                                    prefillFromWorkoutDay()
+                                    mode = .manualEntry
+                                },
+                                onRefresh: {
+                                    Task { await healthKit.fetchRecentWorkouts() }
+                                }
+                            )
+                            .task { await healthKit.fetchRecentWorkouts() }
 
-                    case .pickFromHealthKit:
-                        HealthKitWorkoutPickerView(
-                            workouts: healthKit.recentWorkouts,
-                            units: units,
-                            onSelect: { data in
-                                selectedHKWorkout = data
-                                applyHealthKitData(data)
-                                mode = .manualEntry
-                            }
-                        )
+                        case .pickFromHealthKit:
+                            HealthKitWorkoutPickerView(
+                                workouts: healthKit.recentWorkouts,
+                                units: units,
+                                onSelect: { data in
+                                    selectedHKWorkout = data
+                                    applyHealthKitData(data)
+                                    mode = .manualEntry
+                                }
+                            )
 
-                    case .manualEntry:
-                        manualEntryForm
+                        case .manualEntry:
+                            manualEntryForm
+                        }
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: mode)
@@ -106,6 +124,7 @@ struct LogWorkoutView: View {
     // MARK: - Navigation helpers
 
     private var navigationTitle: String {
+        if isStrengthDayLog { return "Log Strength" }
         switch mode {
         case .selectSource: return "Log Workout"
         case .pickFromHealthKit: return "Select Run"
@@ -114,17 +133,23 @@ struct LogWorkoutView: View {
     }
 
     private var leadingLabel: String {
+        if isStrengthDayLog { return "Cancel" }
         switch mode {
-        case .selectSource: return "Cancel"
+        case .selectSource: return logRunOnStrengthDay ? "Back" : "Cancel"
         case .pickFromHealthKit: return "Back"
-        case .manualEntry: return selectedHKWorkout != nil ? "Back" : "Cancel"
+        case .manualEntry: return selectedHKWorkout != nil ? "Back" : (logRunOnStrengthDay ? "Back" : "Cancel")
         }
     }
 
     private func leadingAction() {
+        if isStrengthDayLog { dismiss(); return }
         switch mode {
         case .selectSource:
-            dismiss()
+            if logRunOnStrengthDay {
+                logRunOnStrengthDay = false
+            } else {
+                dismiss()
+            }
         case .pickFromHealthKit:
             mode = .selectSource
         case .manualEntry:
@@ -137,6 +162,68 @@ struct LogWorkoutView: View {
         }
     }
 
+    // MARK: - Strength Day Form
+
+    private var strengthDayForm: some View {
+        VStack(spacing: .strideMD) {
+            Spacer()
+
+            VStack(spacing: .strideMD) {
+                Image(systemName: "dumbbell.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(Color.stride.sky)
+
+                Text(workoutDay?.workoutTitle ?? "Strength Day")
+                    .font(Font.stride.headingMedium)
+
+                Text("Mark this strength session as complete")
+                    .font(Font.stride.bodyMedium)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            // Optional notes
+            GlassCard {
+                VStack(alignment: .leading, spacing: .strideSM) {
+                    Label("Notes (optional)", systemImage: "text.bubble")
+                        .font(Font.stride.headingSmall)
+
+                    TextField(
+                        "Any thoughts on the session...",
+                        text: $notes,
+                        axis: .vertical
+                    )
+                    .font(Font.stride.bodyMedium)
+                    .lineLimit(3...6)
+                    .onChange(of: notes) {
+                        if notes.count > 500 { notes = String(notes.prefix(500)) }
+                    }
+                }
+            }
+            .padding(.horizontal, .strideMD)
+
+            Spacer()
+
+            Button("Mark as Complete") { saveStrengthDay() }
+                .buttonStyle(StridePrimaryButtonStyle())
+                .padding(.horizontal, .strideMD)
+                .disabled(isSaving)
+
+            Button {
+                logRunOnStrengthDay = true
+                mode = .selectSource
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "figure.run")
+                    Text("Also Log a Run")
+                }
+            }
+            .buttonStyle(StrideSecondaryButtonStyle())
+            .padding(.horizontal, .strideMD)
+            .padding(.bottom, .strideMD)
+        }
+    }
+
     // MARK: - Manual Entry Form
 
     private var manualEntryForm: some View {
@@ -146,6 +233,11 @@ struct LogWorkoutView: View {
                 // Import confirmation banner
                 if let hkData = selectedHKWorkout {
                     HKImportBanner(data: hkData, units: units)
+                }
+
+                // Workout type picker — lets user label what they actually did
+                if !isRestDayLog && !isStrengthDayLog {
+                    workoutTypePicker
                 }
 
                 // Rest-day activity type selector
@@ -214,6 +306,16 @@ struct LogWorkoutView: View {
                                 Text(units.shortLabel)
                                     .font(Font.stride.headingSmall)
                                     .foregroundStyle(.secondary)
+
+                                if isDistanceFocused {
+                                    Spacer()
+                                    Button("Done") {
+                                        isDistanceFocused = false
+                                    }
+                                    .font(Font.stride.bodyMedium.weight(.semibold))
+                                    .foregroundStyle(Color.stride.lavenderDeep)
+                                    .transition(.opacity)
+                                }
                             }
 
                             Slider(value: distanceKmBinding, in: 0...80, step: 0.1)
@@ -338,6 +440,7 @@ struct LogWorkoutView: View {
             }
             .padding(.strideMD)
         }
+        .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
             Button("Save Workout") { save() }
                 .buttonStyle(StridePrimaryButtonStyle())
@@ -397,12 +500,62 @@ struct LogWorkoutView: View {
     private var effectivePaceSecPerMile: Int? {
         let secPerDisplayUnit = parsedPaceSecPerDisplayUnit() ?? computedPaceSecPerDisplayUnit
         guard let pace = secPerDisplayUnit else { return nil }
-        return units == .kilometers ? Int(Double(pace) / 1.60934) : pace
+        return units == .kilometers ? Int(Double(pace) * 1.60934) : pace
     }
 
     private var parsedHeartRate: Double? {
         guard let bpm = Double(heartRateText), bpm > 0 else { return nil }
         return bpm
+    }
+
+    // MARK: - Workout Type Picker
+
+    private static let runnableTypes: [WorkoutType] = [
+        .easyRun, .longRun, .tempoRun, .intervalRun, .recoveryRun
+    ]
+
+    private var workoutTypePicker: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("What did you do?", systemImage: "figure.run")
+                    .font(Font.stride.headingSmall)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Self.runnableTypes, id: \.self) { type in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    selectedWorkoutType = type
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: type.sfSymbol)
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text(type.rawValue)
+                                        .font(Font.stride.label)
+                                }
+                                .foregroundStyle(
+                                    selectedWorkoutType == type
+                                        ? .white
+                                        : type.accentColor
+                                )
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule()
+                                        .fill(
+                                            selectedWorkoutType == type
+                                                ? type.accentColor
+                                                : type.accentColor.opacity(0.12)
+                                        )
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Rest Day Components
@@ -505,6 +658,7 @@ struct LogWorkoutView: View {
         guard let workout = workoutDay else { return }
         distanceMiles = workout.targetDistanceMiles
         distanceText = String(format: "%.1f", units.convert(workout.targetDistanceMiles))
+        selectedWorkoutType = workout.workoutType.isRun ? workout.workoutType : .easyRun
         // Don't prefill duration — user must enter their actual time
         durationHours = 0
         durationMinutes = 0
@@ -524,7 +678,7 @@ struct LogWorkoutView: View {
         // Pre-fill pace from HK data (in display units)
         if let paceSecPerMile = data.averagePaceSecPerMile {
             let displayPace = units == .kilometers
-                ? Int(Double(paceSecPerMile) * 1.60934)
+                ? Int(Double(paceSecPerMile) / 1.60934)
                 : paceSecPerMile
             paceText = formatPace(displayPace)
         }
@@ -547,6 +701,40 @@ struct LogWorkoutView: View {
         }
     }
 
+    // MARK: - Save Strength Day
+
+    private func saveStrengthDay() {
+        guard let workout = workoutDay else { return }
+
+        if workout.log != nil {
+            showAlreadyLoggedAlert = true
+            return
+        }
+
+        isSaving = true
+
+        let log = WorkoutLog(
+            actualDistanceMiles: 0,
+            actualDurationSeconds: 0,
+            effortRating: 5,
+            notes: notes,
+            sourceHealthKit: false,
+            averageHeartRate: nil,
+            averagePaceSecPerMile: nil,
+            restDayActivityType: nil
+        )
+
+        modelContext.insert(log)
+        workout.log = log
+        workout.isCompleted = true
+        try? modelContext.save()
+
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        showConfettiOnParent = true
+        NotificationCenter.default.post(name: Notification.Name("workoutLogged"), object: nil)
+        dismiss()
+    }
+
     // MARK: - Save
 
     private func save() {
@@ -560,6 +748,11 @@ struct LogWorkoutView: View {
 
         isSaving = true
 
+        // Store actual workout type if it differs from the planned type
+        let typeOverride: WorkoutType? = (selectedWorkoutType != workout.workoutType)
+            ? selectedWorkoutType
+            : nil
+
         let log = WorkoutLog(
             actualDistanceMiles: distanceMiles,
             actualDurationSeconds: totalDurationSeconds,
@@ -568,7 +761,9 @@ struct LogWorkoutView: View {
             sourceHealthKit: selectedHKWorkout != nil,
             averageHeartRate: parsedHeartRate,
             averagePaceSecPerMile: effectivePaceSecPerMile,
-            restDayActivityType: isRestDayLog ? restDayActivityType : nil
+            restDayActivityType: isRestDayLog ? restDayActivityType : nil,
+            actualWorkoutType: typeOverride,
+            strengthCompleted: logRunOnStrengthDay
         )
 
         modelContext.insert(log)
@@ -600,8 +795,10 @@ struct LogWorkoutView: View {
 
 private struct LogSourcePickerView: View {
     let recentWorkoutCount: Int
+    let isRefreshing: Bool
     let onHealthKit: () -> Void
     let onManual: () -> Void
+    let onRefresh: () -> Void
 
     var body: some View {
         VStack(spacing: .strideMD) {
@@ -626,15 +823,31 @@ private struct LogSourcePickerView: View {
                             Text("Import from Apple Health")
                                 .font(Font.stride.bodyMedium.weight(.semibold))
                                 .foregroundStyle(.primary)
-                            Text(
-                                recentWorkoutCount > 0
-                                    ? "\(recentWorkoutCount) recent run\(recentWorkoutCount == 1 ? "" : "s") available"
-                                    : "No recent runs found"
-                            )
-                            .font(Font.stride.caption)
-                            .foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                if isRefreshing {
+                                    ProgressView()
+                                        .controlSize(.mini)
+                                    Text("Syncing...")
+                                        .font(Font.stride.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text(
+                                        recentWorkoutCount > 0
+                                            ? "\(recentWorkoutCount) recent run\(recentWorkoutCount == 1 ? "" : "s") available"
+                                            : "No recent runs found"
+                                    )
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                         Spacer()
+                        Button(action: onRefresh) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(Color.stride.lavenderDeep)
+                        }
+                        .disabled(isRefreshing)
                         Image(systemName: "chevron.right")
                             .foregroundStyle(.secondary)
                     }

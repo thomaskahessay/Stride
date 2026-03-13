@@ -11,6 +11,30 @@ struct FitnessProfileStepView: View {
         )
     }
 
+    // Longest run slider — display in user's preferred unit, store in miles
+    private var longestRunDisplayBinding: Binding<Double> {
+        Binding(
+            get: {
+                viewModel.selectedUnitSystem == .kilometers
+                    ? (viewModel.longestRunMiles * 1.60934 * 2).rounded() / 2
+                    : (viewModel.longestRunMiles * 2).rounded() / 2
+            },
+            set: {
+                viewModel.longestRunMiles = viewModel.selectedUnitSystem == .kilometers
+                    ? $0 / 1.60934
+                    : $0
+            }
+        )
+    }
+
+    private var longestRunRange: ClosedRange<Double> {
+        viewModel.selectedUnitSystem == .kilometers ? 0...50 : 0...31
+    }
+
+    private var longestRunStep: Double {
+        viewModel.selectedUnitSystem == .kilometers ? 0.5 : 0.5
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: .strideLG) {
@@ -20,9 +44,63 @@ struct FitnessProfileStepView: View {
                     subtitle: viewModel.fitnessProfileCoachingLine
                 )
 
-                // Context cards (read-only) — shown when we have HealthKit data
+                // Longest recent run — editable slider (always shown)
+                GlassCard {
+                    VStack(alignment: .leading, spacing: .strideSM) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Longest Recent Run")
+                                    .font(Font.stride.headingSmall)
+                                Text("Your longest run in the last 2–3 months")
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(String(format: "%.1f %@",
+                                        longestRunDisplayBinding.wrappedValue,
+                                        viewModel.selectedUnitSystem.shortLabel))
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .foregroundStyle(Color.stride.lavenderDeep)
+                        }
+
+                        Slider(value: longestRunDisplayBinding,
+                               in: longestRunRange, step: longestRunStep)
+                            .tint(Color.stride.lavender)
+
+                        HStack {
+                            Text("None")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(String(format: "%.0f %@",
+                                        longestRunRange.upperBound,
+                                        viewModel.selectedUnitSystem.shortLabel))
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if viewModel.hasEnoughData,
+                           let analysis = viewModel.fitnessAnalysis,
+                           abs(viewModel.longestRunMiles - analysis.longestRunMiles) < 0.5 {
+                            Label("Pre-filled from your HealthKit data", systemImage: "heart.fill")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                // Context card — runs per week (read-only, HealthKit only)
                 if viewModel.hasEnoughData {
-                    contextCards
+                    GlassCard {
+                        HStack(spacing: .strideMD) {
+                            contextStat(
+                                icon: "calendar",
+                                label: "Runs / Week",
+                                value: String(format: "%.1f", viewModel.runsPerWeekDisplay)
+                            )
+                            Spacer()
+                        }
+                    }
                 }
 
                 // Weekly mileage — editable
@@ -84,7 +162,9 @@ struct FitnessProfileStepView: View {
                             Spacer()
                         }
 
-                        if viewModel.hasEnoughData {
+                        if viewModel.hasEnoughData,
+                           let analysis = viewModel.fitnessAnalysis,
+                           viewModel.zone2PaceSecondsPerMile == analysis.estimatedZone2PaceSecPerMile {
                             Label("Pre-filled from your HealthKit data", systemImage: "heart.fill")
                                 .font(Font.stride.caption)
                                 .foregroundStyle(.secondary)
@@ -180,27 +260,6 @@ struct FitnessProfileStepView: View {
             }
             .padding(.horizontal, .strideMD)
             .padding(.bottom, 120)
-        }
-    }
-
-    // MARK: - Context Cards (read-only, shown with HealthKit data)
-
-    @ViewBuilder
-    private var contextCards: some View {
-        GlassCard {
-            HStack(spacing: .strideMD) {
-                contextStat(
-                    icon: "road.lanes",
-                    label: "Longest Run",
-                    value: String(format: "%.1f km", viewModel.longestRunMiles * 1.60934)
-                )
-                Spacer()
-                contextStat(
-                    icon: "calendar",
-                    label: "Runs / Week",
-                    value: String(format: "%.1f", viewModel.runsPerWeekDisplay)
-                )
-            }
         }
     }
 

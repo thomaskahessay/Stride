@@ -17,23 +17,34 @@ struct ReadyCheckView: View {
             ZStack {
                 LinearGradient.strideBackground.ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: .strideLG) {
-                        headerSection
-                        sleepSection
-                        bodySection
-                        mindSection
-
-                        if viewModel.hasEvaluated, let result = viewModel.result {
+                if viewModel.hasEvaluated, let result = viewModel.result {
+                    GeometryReader { geo in
+                        ScrollView {
                             resultSection(result: result)
-                        } else {
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, .strideMD)
+                                .padding(.vertical, .strideMD)
+                                .frame(minHeight: geo.size.height)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                } else {
+                    ScrollView {
+                        VStack(spacing: .strideLG) {
+                            headerSection
+                            sleepSection
+                            bodySection
+                            mindSection
                             evaluateButton
                         }
+                        .padding(.horizontal, .strideMD)
+                        .padding(.vertical, .strideMD)
                     }
-                    .padding(.horizontal, .strideMD)
-                    .padding(.vertical, .strideMD)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.85), value: viewModel.hasEvaluated)
             .navigationTitle("Ready Check")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -287,14 +298,14 @@ struct ReadyCheckView: View {
                 }
                 .sensoryFeedback(.success, trigger: true)
             } else {
-                // Follow coach advice
+                // Advisory — acknowledge the recommendation
                 Button {
-                    viewModel.acceptWithAdaptation()
+                    viewModel.acceptWithoutAdaptation()
                     dismiss()
                 } label: {
                     HStack(spacing: .strideSM) {
-                        Image(systemName: "brain.head.profile")
-                        Text("Follow coach advice")
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Got it, thanks")
                     }
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
@@ -306,30 +317,11 @@ struct ReadyCheckView: View {
                     )
                 }
                 .sensoryFeedback(.success, trigger: true)
-
-                // Override — user keeps original workout
-                Button {
-                    viewModel.acceptWithoutAdaptation()
-                    dismiss()
-                } label: {
-                    HStack(spacing: .strideSM) {
-                        Image(systemName: "figure.run")
-                        Text("I've got this")
-                    }
-                    .font(Font.stride.bodyMedium.weight(.semibold))
-                    .foregroundStyle(Color.stride.lavenderDeep)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
-                            .strokeBorder(Color.stride.lavenderDeep.opacity(0.4), lineWidth: 1)
-                    )
-                }
             }
 
             // Re-evaluate option
             Button {
-                withAnimation {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                     viewModel.hasEvaluated = false
                     viewModel.result = nil
                 }
@@ -338,11 +330,9 @@ struct ReadyCheckView: View {
                     .font(Font.stride.bodyMedium)
                     .foregroundStyle(Color.stride.lavenderDeep)
             }
+            .padding(.bottom, .strideLG)
         }
-        .transition(.asymmetric(
-            insertion: .move(edge: .bottom).combined(with: .opacity),
-            removal: .opacity
-        ))
+        .transition(.opacity.combined(with: .scale(scale: 0.95)))
     }
 
     // MARK: - Helpers

@@ -16,6 +16,16 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
+            #if DEBUG
+            if DateProvider.shared.isTimeTraveling {
+                VStack {
+                    TimeTravelBanner()
+                    Spacer()
+                }
+                .zIndex(100)
+            }
+            #endif
+
             TabView(selection: $selectedTab) {
                 DashboardView(profile: profile)
                     .tag(Tab.home)
@@ -71,7 +81,15 @@ struct ContentView: View {
                     }
             }
         }
-        .sheet(isPresented: $showLogWorkout) {
+        .sheet(isPresented: $showLogWorkout, onDismiss: {
+            // After logging, show the workout detail so the user sees their summary
+            if let workout = profile.activePlan?.workoutDays.first(where: \.isToday),
+               workout.isCompleted {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    showWorkoutDetail = workout
+                }
+            }
+        }) {
             LogWorkoutView(
                 workoutDay: profile.activePlan?.workoutDays.first(where: \.isToday),
                 units: profile.unitPreference,
@@ -79,6 +97,14 @@ struct ContentView: View {
                 weeklyTargetMiles: weeklyTargetMiles,
                 showConfettiOnParent: $showConfetti
             )
+        }
+        .sheet(item: $showWorkoutDetail) { workout in
+            if let plan = profile.activePlan {
+                WorkoutDetailView(
+                    viewModel: WorkoutDetailViewModel(workout: workout, plan: plan),
+                    units: profile.unitPreference
+                )
+            }
         }
         .alert("Already Logged", isPresented: $showAlreadyLoggedAlert) {
             Button("OK", role: .cancel) { }
@@ -98,11 +124,12 @@ struct ContentView: View {
     private var weeklyLoggedMiles: Double {
         guard let plan = profile.activePlan else { return 0 }
         let cal = Calendar.current
+        let now = DateProvider.shared.now
         let weekStart = cal.date(
-            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-        ) ?? Date()
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        ) ?? now
         return plan.workoutDays
-            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= Date() }
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= now }
             .compactMap { day in
                 guard let log = day.log else { return nil as Double? }
                 // Don't count cross-training toward running volume
@@ -117,10 +144,11 @@ struct ContentView: View {
     private var weeklyTargetMiles: Double {
         guard let plan = profile.activePlan else { return 0 }
         let cal = Calendar.current
+        let now = DateProvider.shared.now
         let weekStart = cal.date(
-            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-        ) ?? Date()
-        let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? Date()
+            from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+        ) ?? now
+        let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
         return plan.workoutDays
             .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun && !$0.isSkipped }
             .map { $0.targetDistanceMiles }
@@ -159,3 +187,29 @@ private struct FABButton: View {
         .sensoryFeedback(.impact(weight: .light), trigger: isPressed)
     }
 }
+
+// MARK: - Time Travel Banner
+
+#if DEBUG
+struct TimeTravelBanner: View {
+    var body: some View {
+        let formatter: DateFormatter = {
+            let f = DateFormatter()
+            f.dateFormat = "E, MMM d yyyy"
+            return f
+        }()
+
+        HStack {
+            Image(systemName: "clock.arrow.circlepath")
+            Text("TIME TRAVEL: \(formatter.string(from: DateProvider.shared.now))")
+                .font(.caption.weight(.bold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.orange.gradient)
+        .clipShape(Capsule())
+        .padding(.top, 4)
+    }
+}
+#endif

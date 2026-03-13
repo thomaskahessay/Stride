@@ -198,7 +198,7 @@ extension FinishTimeEstimator {
         manualRaceTime: RaceTime?,
         targetRace: RaceType
     ) -> CumulativeProjection? {
-        let today = Date()
+        let today = DateProvider.shared.now
         let cal = Calendar.current
 
         // 1. Merge and apply basic filters

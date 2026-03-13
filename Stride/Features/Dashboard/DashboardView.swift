@@ -25,17 +25,16 @@ struct DashboardView: View {
                         // Greeting + compact race countdown
                         greetingHeader
 
-                        // Ready Check prompt
-                        if !viewModel.isRestDay && !viewModel.hasCompletedReadyCheckToday {
+                        // Ready Check prompt (skip for rest & strength days)
+                        if !viewModel.skipReadyCheck && !viewModel.hasCompletedReadyCheckToday {
                             ReadyCheckPromptCard { showReadyCheck = true }
                         }
 
-                        // Adaptation banner
-                        if !viewModel.pendingAdaptations.isEmpty {
-                            AdaptationBannerCard(
-                                records: viewModel.pendingAdaptations,
-                                onDismiss: { viewModel.dismissAllAdaptations() },
-                                onUndo: { viewModel.revertAllAdaptations() }
+                        // Coach recommendation (missed key workout)
+                        if let recommendation = viewModel.coachRecommendation {
+                            CoachRecommendationCard(
+                                recommendation: recommendation,
+                                onDismiss: { viewModel.dismissRecommendation() }
                             )
                         }
 
@@ -72,6 +71,10 @@ struct DashboardView: View {
                     .padding(.horizontal, .strideMD)
                     .padding(.vertical, .strideMD)
                 }
+                .refreshable {
+                    await HealthKitManager.shared.fetchRecentWorkouts()
+                    viewModel.refresh()
+                }
             }
             .navigationBarHidden(true)
             .onAppear {
@@ -80,7 +83,7 @@ struct DashboardView: View {
 
                 // Auto-show Ready Check as full-screen cover on first daily open
                 if !hasAutoShownReadyCheck
-                    && !viewModel.isRestDay
+                    && !viewModel.skipReadyCheck
                     && !viewModel.hasCompletedReadyCheckToday
                     && viewModel.todayWorkout != nil {
                     hasAutoShownReadyCheck = true
@@ -151,7 +154,7 @@ struct DashboardView: View {
     }
 
     private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: Date())
+        let hour = Calendar.current.component(.hour, from: DateProvider.shared.now)
         switch hour {
         case 5..<12: return "Good morning,"
         case 12..<17: return "Good afternoon,"
@@ -192,7 +195,7 @@ struct WeeklyCalendarStrip: View {
     private var stripDates: [Date] {
         var cal = Calendar.current
         cal.firstWeekday = 1 // Sunday
-        let today = cal.startOfDay(for: Date())
+        let today = cal.startOfDay(for: DateProvider.shared.now)
         let weekday = cal.component(.weekday, from: today) // 1 = Sunday
         let sunday = cal.date(byAdding: .day, value: -(weekday - 1), to: today)!
         return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: sunday) }
@@ -204,8 +207,8 @@ struct WeekStripDayCell: View {
     let workout: WorkoutDay?
     let onTap: () -> Void
 
-    private var isToday: Bool { Calendar.current.isDateInToday(date) }
-    private var isPast: Bool { date < Calendar.current.startOfDay(for: Date()) }
+    private var isToday: Bool { Calendar.current.isDate(date, inSameDayAs: DateProvider.shared.now) }
+    private var isPast: Bool { date < Calendar.current.startOfDay(for: DateProvider.shared.now) }
     private var isTappable: Bool { workout != nil }
 
     var body: some View {
@@ -282,7 +285,7 @@ struct TodayWorkoutCard: View {
                 VStack(alignment: .leading, spacing: .strideSM) {
                     // Header row
                     HStack {
-                        Label("TODAY'S RUN", systemImage: "calendar")
+                        Label(workout.workoutType.isRun ? "TODAY'S RUN" : "TODAY'S WORKOUT", systemImage: "calendar")
                             .font(Font.stride.label)
                             .foregroundStyle(workout.workoutType.accentColor)
                             .tracking(1.0)
@@ -296,41 +299,68 @@ struct TodayWorkoutCard: View {
                         .foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    // Stats row — big numbers
-                    HStack(spacing: .strideLG) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(distanceLabel)
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
-                                .foregroundStyle(.primary)
-                            Text(units.shortLabel)
-                                .font(Font.stride.caption)
-                                .foregroundStyle(.secondary)
+                    // Stats row — big numbers (hidden for non-run workouts like strength)
+                    if workout.workoutType.isRun {
+                        HStack(spacing: .strideLG) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(distanceLabel)
+                                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                Text(units.shortLabel)
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.2))
+                                .frame(width: 1, height: 32)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(workout.targetPaceSecPerMile.map { $0.formattedPace(unit: units) } ?? durationLabel)
+                                    .font(.system(size: workout.targetPaceSecPerMile != nil ? 18 : 22, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                Text(workout.targetPaceSecPerMile != nil ? "target pace" : "duration")
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.2))
+                                .frame(width: 1, height: 32)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(workout.effortLevel.rawValue)
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                Text("effort")
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                    } else {
+                        // Non-run workouts (strength) — show duration + effort only
+                        HStack(spacing: .strideLG) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(durationLabel)
+                                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                Text("duration")
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
 
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.2))
-                            .frame(width: 1, height: 32)
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.2))
+                                .frame(width: 1, height: 32)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(workout.targetPaceSecPerMile.map { $0.formattedPace(unit: units) } ?? durationLabel)
-                                .font(.system(size: workout.targetPaceSecPerMile != nil ? 18 : 22, weight: .bold, design: .rounded))
-                                .foregroundStyle(.primary)
-                            Text(workout.targetPaceSecPerMile != nil ? "target pace" : "duration")
-                                .font(Font.stride.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.2))
-                            .frame(width: 1, height: 32)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(workout.effortLevel.rawValue)
-                                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.primary)
-                            Text("effort")
-                                .font(Font.stride.caption)
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(workout.effortLevel.rawValue)
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                Text("effort")
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 

@@ -22,16 +22,15 @@ final class TrainingPlanGenerator {
         let paceZones = calculatePaceZones(profile: profile)
         plan.paceZones = paceZones
 
-        let mileageByWeek = weeklyMileageProgression(
-            profile: profile,
-            totalWeeks: totalWeeks
-        )
+        let longRunByWeek = longRunProgression(profile: profile, entryWeek: plan.entryWeek)
+        let easyRunByWeek = easyRunProgression(profile: profile, entryWeek: plan.entryWeek)
 
         let days = buildWorkoutDays(
             profile: profile,
             plan: plan,
-            mileageByWeek: mileageByWeek,
-            paceZones: paceZones
+            paceZones: paceZones,
+            longRunByWeek: longRunByWeek,
+            easyRunByWeek: easyRunByWeek
         )
 
         plan.workoutDays = days
@@ -63,8 +62,8 @@ final class TrainingPlanGenerator {
         case (.halfMarathon, .intermediate): return 14
         case (.halfMarathon, .advanced): return 12
         case (.fullMarathon, .beginner): return 20
-        case (.fullMarathon, .intermediate): return 18
-        case (.fullMarathon, .advanced): return 16
+        case (.fullMarathon, .intermediate): return 20
+        case (.fullMarathon, .advanced): return 18
         }
     }
 
@@ -84,7 +83,7 @@ final class TrainingPlanGenerator {
         let days = Calendar.current.dateComponents(
             [.day],
             from: Calendar.current.startOfDay(for: planStartDate),
-            to: Calendar.current.startOfDay(for: Date())
+            to: Calendar.current.startOfDay(for: DateProvider.shared.now)
         ).day ?? 0
         return max(1, (days / 7) + 1)
     }
@@ -108,12 +107,14 @@ final class TrainingPlanGenerator {
                 let taperMultiplier = taperFactor(week: taperWeek, total: taperWeeks)
                 mileage[week] = peakMiles * taperMultiplier
             } else if week % 4 == 0 {
-                // Recovery week every 4th week
-                mileage[week] = current * 0.80
+                // Recovery / cutback week — 3:1 build/cutback cycle
+                // Volume drops for this week only; next build week resumes
+                // from where the previous build cycle left off (standard 3:1)
+                mileage[week] = current * 0.75
             } else {
                 mileage[week] = current
-                // Progress toward peak, capped at 10%
-                let next = current * 1.10
+                // Progress toward peak, capped at 8%
+                let next = current * 1.08
                 current = min(next, peakMiles)
             }
         }
@@ -122,6 +123,7 @@ final class TrainingPlanGenerator {
     }
 
     private func startingMileage(profile: UserProfile) -> Double {
+        // Fallback level base — only used when user has no self-reported mileage
         let levelBase: Double
         switch (profile.raceType, profile.fitnessLevel) {
         case (.fiveK, .beginner): levelBase = 8
@@ -137,8 +139,12 @@ final class TrainingPlanGenerator {
         case (.fullMarathon, .intermediate): levelBase = 30
         case (.fullMarathon, .advanced): levelBase = 40
         }
-        // Don't shock a runner already above the level base
-        return max(levelBase, profile.currentWeeklyMiles * 0.9)
+        // Anchor to the runner's actual weekly volume; fall back to level base
+        // if they haven't reported any mileage
+        if profile.currentWeeklyMiles > 0 {
+            return profile.currentWeeklyMiles
+        }
+        return levelBase
     }
 
     private func peakMileage(for race: RaceType, level: FitnessLevel) -> Double {
@@ -181,15 +187,15 @@ final class TrainingPlanGenerator {
     private func buildWorkoutDays(
         profile: UserProfile,
         plan: TrainingPlan,
-        mileageByWeek: [Int: Double],
-        paceZones: PaceZones?
+        paceZones: PaceZones?,
+        longRunByWeek: [Int: Double],
+        easyRunByWeek: [Int: Double]
     ) -> [WorkoutDay] {
         var days: [WorkoutDay] = []
         let calendar = Calendar.current
 
         for week in 1...plan.totalWeeks {
             let weekStartOffset = (week - 1) * 7
-            let weekMiles = mileageByWeek[week] ?? 0
             let phase = trainingPhase(week: week, total: plan.totalWeeks)
 
             // Collect all dates + weekdays for this 7-day window
@@ -235,41 +241,78 @@ final class TrainingPlanGenerator {
                 }
             }
 
-            // Strength is an additional day on top of trainingDaysPerWeek (base/build only).
-            // Place it on the first free day that isn't a rest, run, or quality day.
+            // Strength goes on any day without a run (base/build only).
+            // Prefer rest days first, then any other non-run day.
+            let runDays: Set<Weekday> = {
+                var s: Set<Weekday> = [profile.preferredLongRunDay]
+                if let q = qualityWeekday { s.insert(q) }
+                s.formUnion(easyRunWeekdays)
+                return s
+            }()
             let strengthWeekday: Weekday? = (phase == .base || phase == .build)
                 ? weekDays.map(\.weekday).first {
-                    !profile.restDays.contains($0)
-                        && $0 != profile.preferredLongRunDay
-                        && $0 != qualityWeekday
-                        && !easyRunWeekdays.contains($0)
+                    !runDays.contains($0)
                 }
                 : nil
+
+            // --- Compute distances ---
+            // Long run from dedicated progression table (already has cutback + cap logic).
+            // Only apply the 32km absolute ceiling here.
+            let rawLongRun = longRunDistance(weekNumber: week, profile: profile, longRunByWeek: longRunByWeek)
+            let longRunDist = min(rawLongRun, 20.0) // 20mi ≈ 32km absolute cap
+
+            // Tempo effort: 5–8km of hard running, scaling with phase.
+            // Warmup + cooldown added by the factory method (~3.2km total).
+            let hasQuality = qualityWeekday != nil
+            let tempoEffortDist: Double
+            switch phase {
+            case .base:  tempoEffortDist = 3.0   // ~5km
+            case .build: tempoEffortDist = 4.0   // ~6.4km
+            case .peak:  tempoEffortDist = 5.0   // ~8km
+            case .taper: tempoEffortDist = 3.0
+            }
+            let workoutDist = hasQuality ? tempoEffortDist : 0.0
+
+            // Easy runs: independent progression, distributed by role
+            let aerobicEasyDist = easyRunByWeek[week]
+                ?? startingEasyRun(for: profile.raceType, level: profile.fitnessLevel)
+            let sortedEasyWeekdays = easyRunWeekdays.sorted { $0.rawValue < $1.rawValue }
+            let easyDistMap = distributeEasyRunsByRole(
+                aerobicDistance: aerobicEasyDist,
+                easyWeekdays: sortedEasyWeekdays,
+                longRunDay: profile.preferredLongRunDay,
+                qualityDay: qualityWeekday
+            )
 
             // Build each day using the pre-determined slot assignments
             for (date, weekday) in weekDays {
                 let workoutDay: WorkoutDay
 
-                if profile.restDays.contains(weekday) {
+                if weekday == strengthWeekday {
+                    workoutDay = makeStrengthDay(date: date, weekNumber: week, weekday: weekday)
+                } else if profile.restDays.contains(weekday) {
                     workoutDay = makeRestDay(date: date, weekNumber: week, weekday: weekday)
                 } else if weekday == profile.preferredLongRunDay {
                     workoutDay = makeLongRunDay(
                         date: date, weekNumber: week, weekday: weekday,
-                        weeklyMiles: weekMiles, profile: profile,
+                        distance: longRunDist, profile: profile,
                         phase: phase, paceZones: paceZones
                     )
                 } else if weekday == qualityWeekday {
-                    workoutDay = week % 2 == 0
-                        ? makeTempoDay(date: date, weekNumber: week, weekday: weekday,
-                                       weeklyMiles: weekMiles, profile: profile, paceZones: paceZones)
-                        : makeIntervalDay(date: date, weekNumber: week, weekday: weekday,
-                                          weeklyMiles: weekMiles, profile: profile, paceZones: paceZones)
-                } else if weekday == strengthWeekday {
-                    workoutDay = makeStrengthDay(date: date, weekNumber: week, weekday: weekday)
-                } else if easyRunWeekdays.contains(weekday) {
+                    // Tempo-biased quality distribution:
+                    // - Short races (5K/10K): intervals every 2nd week (speed matters more)
+                    // - Long races (HM/FM): intervals every 3rd week (threshold matters more)
+                    let intervalFrequency: Int = (profile.raceType == .fiveK || profile.raceType == .tenK) ? 2 : 3
+                    workoutDay = week % intervalFrequency == 0
+                        ? makeIntervalDay(date: date, weekNumber: week, weekday: weekday,
+                                          distance: workoutDist, profile: profile, paceZones: paceZones)
+                        : makeTempoDay(date: date, weekNumber: week, weekday: weekday,
+                                       distance: workoutDist, profile: profile, paceZones: paceZones)
+                } else if let easyInfo = easyDistMap[weekday] {
                     workoutDay = makeEasyRunDay(
                         date: date, weekNumber: week, weekday: weekday,
-                        weeklyMiles: weekMiles, profile: profile, paceZones: paceZones
+                        distance: easyInfo.distance, role: easyInfo.role,
+                        profile: profile, paceZones: paceZones
                     )
                 } else {
                     workoutDay = makeRestDay(date: date, weekNumber: week, weekday: weekday)
@@ -293,6 +336,51 @@ final class TrainingPlanGenerator {
         else { return .taper }
     }
 
+    // MARK: - Easy Run Role Assignment
+
+    /// Assign roles by chronological position within the week.
+    /// 1 run  → [easy]
+    /// 2 runs → [recovery, easy]
+    /// 3 runs → [recovery, shortEasy, easy]
+    /// 4+ runs → recovery, shortEasy..., easy
+    private func assignEasyRunRoles(count: Int) -> [EasyRunRole] {
+        switch count {
+        case 0: return []
+        case 1: return [.easy]
+        case 2: return [.recovery, .easy]
+        case 3: return [.recovery, .shortEasy, .easy]
+        default:
+            // First is recovery, last is easy, middle ones are short easy
+            var roles: [EasyRunRole] = [.recovery]
+            roles += Array(repeating: EasyRunRole.shortEasy, count: count - 2)
+            roles.append(.easy)
+            return roles
+        }
+    }
+
+    /// Distribute easy run distances for the week using the progression value
+    /// and count-based role assignment. Each role gets a distinct distance.
+    private func distributeEasyRunsByRole(
+        aerobicDistance: Double,
+        easyWeekdays: [Weekday],
+        longRunDay: Weekday,
+        qualityDay: Weekday?
+    ) -> [Weekday: (distance: Double, role: EasyRunRole)] {
+        guard !easyWeekdays.isEmpty else { return [:] }
+
+        let roles = assignEasyRunRoles(count: easyWeekdays.count)
+        var result: [Weekday: (Double, EasyRunRole)] = [:]
+
+        for (weekday, role) in zip(easyWeekdays, roles) {
+            let raw = aerobicDistance * role.weight
+            // Apply role-specific floor; ceiling at ~13km (8.1mi)
+            let clamped = min(max(raw, role.floorMiles), 8.1)
+            result[weekday] = (clamped, role)
+        }
+
+        return result
+    }
+
     // MARK: - Workout Factories
 
     private func makeRestDay(date: Date, weekNumber: Int, weekday: Weekday) -> WorkoutDay {
@@ -311,18 +399,42 @@ final class TrainingPlanGenerator {
         date: Date,
         weekNumber: Int,
         weekday: Weekday,
-        weeklyMiles: Double,
+        distance: Double,
+        role: EasyRunRole = .easy,
         profile: UserProfile,
         paceZones: PaceZones?
     ) -> WorkoutDay {
-        let distance = max(3.0, weeklyMiles * 0.20)
         let duration = estimatedDuration(miles: distance, paceSecPerMile: paceZones?.easyPaceSecPerMile, fallbackMph: 5.5)
+
+        let (workoutType, title, note): (WorkoutType, String, String) = {
+            switch role {
+            case .recovery:
+                return (.recoveryRun,
+                        "Recovery Run",
+                        "Keep this one genuinely short and slow. Your body is still adapting from yesterday's hard effort. The goal is blood flow, not fitness — if in doubt, go slower.")
+            case .shortEasy:
+                return (.easyRun,
+                        "Short Easy Run",
+                        "A shorter easy run today. Keep the legs turning over at a comfortable pace — no need to push the distance. Save your energy for the bigger sessions.")
+            case .easy:
+                return (.easyRun,
+                        "Easy Run",
+                        "Today is about building your aerobic base. Run slow enough to hold a conversation. Don't worry about pace — your easy runs make your hard runs possible.")
+            }
+        }()
+
+        let mainStepLabel: String
+        switch role {
+        case .recovery:  mainStepLabel = "Recovery Run"
+        case .shortEasy: mainStepLabel = "Short Easy Run"
+        case .easy:      mainStepLabel = "Easy Run"
+        }
 
         let steps: [WorkoutStep] = [
             WorkoutStep(order: 1, label: "Warm-up", durationMinutes: 5,
                         description: "5 minutes of brisk walking or very slow jogging",
                         targetPaceSecPerMile: paceZones?.recoveryPaceSecPerMile),
-            WorkoutStep(order: 2, label: "Easy Run", distanceMiles: distance,
+            WorkoutStep(order: 2, label: mainStepLabel, distanceMiles: distance,
                         description: "Run at a fully conversational pace — if you can't speak full sentences, slow down",
                         targetPaceSecPerMile: paceZones?.easyPaceSecPerMile),
             WorkoutStep(order: 3, label: "Cool-down", durationMinutes: 5,
@@ -333,13 +445,13 @@ final class TrainingPlanGenerator {
             date: date,
             weekNumber: weekNumber,
             dayOfWeek: weekday,
-            workoutType: .easyRun,
+            workoutType: workoutType,
             targetDistanceMiles: distance,
             targetDurationMinutes: duration,
             targetPaceSecPerMile: paceZones?.easyPaceSecPerMile,
             effortLevel: .easy,
-            workoutTitle: "Easy Run",
-            coachingNote: "Today is about recovery and building your aerobic base. Run slow enough to hold a conversation. Don't worry about pace — your easy runs make your hard runs possible.",
+            workoutTitle: title,
+            coachingNote: note,
             steps: steps
         )
     }
@@ -348,12 +460,11 @@ final class TrainingPlanGenerator {
         date: Date,
         weekNumber: Int,
         weekday: Weekday,
-        weeklyMiles: Double,
+        distance: Double,
         profile: UserProfile,
         phase: TrainingPhase,
         paceZones: PaceZones?
     ) -> WorkoutDay {
-        let distance = longRunDistance(weekNumber: weekNumber, profile: profile)
         let duration = estimatedDuration(miles: distance, paceSecPerMile: paceZones?.longRunPaceSecPerMile, fallbackMph: 5.0)
 
         let coachingNote = phase == .peak
@@ -407,11 +518,11 @@ final class TrainingPlanGenerator {
         date: Date,
         weekNumber: Int,
         weekday: Weekday,
-        weeklyMiles: Double,
+        distance: Double,
         profile: UserProfile,
         paceZones: PaceZones?
     ) -> WorkoutDay {
-        let tempoMiles = max(2.0, weeklyMiles * 0.15)
+        let tempoMiles = max(2.0, distance)
         let totalDistance = tempoMiles + 2.0 // +1mi warmup +1mi cooldown
         let duration = estimatedDuration(miles: totalDistance, paceSecPerMile: paceZones?.tempoPaceSecPerMile, fallbackMph: 7.0)
 
@@ -447,13 +558,14 @@ final class TrainingPlanGenerator {
         date: Date,
         weekNumber: Int,
         weekday: Weekday,
-        weeklyMiles: Double,
+        distance: Double,
         profile: UserProfile,
         paceZones: PaceZones?
     ) -> WorkoutDay {
-        // 6 × 800m intervals as a standard workout
-        let intervalCount = 6
+        // Scale interval count from the allocated workout distance
         let repDistanceMiles = 0.5 // 800m
+        let availableForReps = max(1.0, distance - 2.0) // subtract warmup+cooldown
+        let intervalCount = max(4, min(8, Int(availableForReps / repDistanceMiles)))
         let totalDistance = 2.0 + Double(intervalCount) * repDistanceMiles
         let duration = estimatedDuration(miles: totalDistance, paceSecPerMile: paceZones?.intervalPaceSecPerMile, fallbackMph: 6.5)
 
@@ -519,33 +631,71 @@ final class TrainingPlanGenerator {
 
     // MARK: - Long Run Distance Table
 
-    private func longRunDistance(weekNumber: Int, profile: UserProfile) -> Double {
+    /// Builds the full long-run progression once, capped at ~2 mi (≈3.2 km) increase
+    /// per week, anchored to the user's longest recent run at the entry week.
+    func longRunProgression(profile: UserProfile, entryWeek: Int) -> [Int: Double] {
         let totalWeeks = planLength(for: profile.raceType, level: profile.fitnessLevel)
-        let progress = Double(weekNumber) / Double(totalWeeks)
         let peak = peakLongRun(for: profile.raceType, level: profile.fitnessLevel)
         let taperWeeks = taperLength(for: profile.raceType)
         let buildWeeks = totalWeeks - taperWeeks
 
-        if weekNumber > buildWeeks {
-            let taperWeek = weekNumber - buildWeeks
-            switch taperWeek {
-            case 1: return peak * 0.75
-            case 2: return peak * 0.55
-            default: return peak * 0.40
+        // Max week-over-week long run increase: 2 miles ≈ 3.2 km
+        let maxWeeklyIncrease: Double = 2.0
+
+        // Anchor start to user's longest recent run (from HealthKit or manual input)
+        let formulaStart = peak * 0.45
+        let recentLongest = profile.longestRecentRunMiles > 0
+            ? profile.longestRecentRunMiles
+            : (profile.recentRuns.map(\.distanceMiles).max() ?? 0)
+        // Start at the runner's actual longest recent run so the first
+        // actionable long run is a natural step up via the increment.
+        let anchoredStart = recentLongest > 0
+            ? min(recentLongest, peak * 0.85)
+            : formulaStart
+        let startLong = max(anchoredStart, formulaStart)
+
+        // Count growth weeks from entry week to end of build phase, so the
+        // progression is spread across the weeks the user will actually run.
+        let effectiveEntry = min(entryWeek, buildWeeks)
+        let growthWeeks = (effectiveEntry...buildWeeks).filter { $0 % 4 != 0 }.count
+        let idealIncrement = growthWeeks > 1
+            ? (peak - startLong) / Double(growthWeeks - 1)
+            : 0
+        let increment = min(idealIncrement, maxWeeklyIncrease)
+
+        var progression: [Int: Double] = [:]
+        var current = startLong
+
+        // Pre-entry weeks get placeholder values (won't be shown but keeps the
+        // dictionary complete for any code that indexes by week number).
+        for week in 1..<effectiveEntry {
+            progression[week] = startLong
+        }
+
+        for week in effectiveEntry...totalWeeks {
+            if week > buildWeeks {
+                // Taper phase — step down from peak
+                let taperWeek = week - buildWeeks
+                switch taperWeek {
+                case 1: progression[week] = peak * 0.75
+                case 2: progression[week] = peak * 0.55
+                default: progression[week] = peak * 0.40
+                }
+            } else if week % 4 == 0 {
+                // Recovery week — pull back 25%
+                progression[week] = (current * 0.75 * 2).rounded() / 2
+            } else {
+                progression[week] = (current * 2).rounded() / 2
+                // Advance for next growth week, capped at peak
+                current = min(current + increment, peak)
             }
         }
 
-        // Anchor the start of the progression to the user's recent longest run.
-        // If their recent long run is above the formula start, we begin there and
-        // progress to peak. If below (or no data), use the standard formula start.
-        let formulaStart = peak * 0.45
-        let recentLongest = profile.recentRuns.map(\.distanceMiles).max() ?? 0
-        let startLong = recentLongest > formulaStart
-            ? min(recentLongest, peak * 0.85) // don't start above 85% of peak
-            : formulaStart
+        return progression
+    }
 
-        let distance = startLong + (peak - startLong) * progress
-        return (distance * 2).rounded() / 2
+    private func longRunDistance(weekNumber: Int, profile: UserProfile, longRunByWeek: [Int: Double]) -> Double {
+        longRunByWeek[weekNumber] ?? peakLongRun(for: profile.raceType, level: profile.fitnessLevel) * 0.45
     }
 
     private func peakLongRun(for race: RaceType, level: FitnessLevel) -> Double {
@@ -556,12 +706,110 @@ final class TrainingPlanGenerator {
         case (.tenK, .beginner): return 8
         case (.tenK, .intermediate): return 10
         case (.tenK, .advanced): return 12
-        case (.halfMarathon, .beginner): return 12
-        case (.halfMarathon, .intermediate): return 14
-        case (.halfMarathon, .advanced): return 16
+        case (.halfMarathon, .beginner): return 10
+        case (.halfMarathon, .intermediate): return 12
+        case (.halfMarathon, .advanced): return 13
         case (.fullMarathon, .beginner): return 18
         case (.fullMarathon, .intermediate): return 20
         case (.fullMarathon, .advanced): return 22
+        }
+    }
+
+    // MARK: - Easy Run Progression
+
+    /// Independent easy run progression — NOT derived from weekly mileage.
+    /// Returns the easy run (1.0× role) distance per week in miles.
+    /// Recovery (0.75×) and short easy (0.85×) are scaled from this value.
+    func easyRunProgression(profile: UserProfile, entryWeek: Int) -> [Int: Double] {
+        let totalWeeks = planLength(for: profile.raceType, level: profile.fitnessLevel)
+        let start = startingEasyRun(for: profile.raceType, level: profile.fitnessLevel)
+        let peak = peakEasyRun(for: profile.raceType, level: profile.fitnessLevel)
+        let taperWeeks = taperLength(for: profile.raceType)
+        let buildWeeks = totalWeeks - taperWeeks
+
+        // Max week-over-week increase: ~0.8km per week
+        let maxWeeklyIncrease: Double = 0.5  // ~0.8km
+
+        let effectiveEntry = min(entryWeek, buildWeeks)
+        let growthWeeks = (effectiveEntry...buildWeeks).filter { $0 % 4 != 0 }.count
+        let idealIncrement = growthWeeks > 1
+            ? (peak - start) / Double(growthWeeks - 1)
+            : 0
+        let increment = min(idealIncrement, maxWeeklyIncrease)
+
+        var progression: [Int: Double] = [:]
+        var current = start
+
+        for week in 1..<effectiveEntry {
+            progression[week] = start
+        }
+
+        for week in effectiveEntry...totalWeeks {
+            if week > buildWeeks {
+                // Taper — step down from peak
+                let taperWeek = week - buildWeeks
+                switch taperWeek {
+                case 1: progression[week] = peak * 0.75
+                case 2: progression[week] = peak * 0.55
+                default: progression[week] = peak * 0.40
+                }
+            } else if week % 4 == 0 {
+                // Recovery week — pull back 25%
+                progression[week] = (current * 0.75 * 2).rounded() / 2
+            } else {
+                progression[week] = (current * 2).rounded() / 2
+                current = min(current + increment, peak)
+            }
+        }
+
+        return progression
+    }
+
+    /// Starting easy run distance (miles) for the 1.0× (easy) role.
+    /// Recovery and short easy runs scale down from this via their weight.
+    /// Floors (5km recovery, 4km short easy, 6km easy) catch any values
+    /// that would otherwise be too low in early weeks.
+    private func startingEasyRun(for race: RaceType, level: FitnessLevel) -> Double {
+        switch (race, level) {
+        // 5K plans
+        case (.fiveK, .beginner):       return 3.7   // 6km
+        case (.fiveK, .intermediate):   return 3.7   // 6km
+        case (.fiveK, .advanced):       return 4.3   // 7km
+        // 10K
+        case (.tenK, .beginner):        return 3.7   // 6km
+        case (.tenK, .intermediate):    return 4.3   // 7km
+        case (.tenK, .advanced):        return 5.0   // 8km
+        // Half Marathon
+        case (.halfMarathon, .beginner):      return 3.7   // 6km
+        case (.halfMarathon, .intermediate):  return 4.3   // 7km
+        case (.halfMarathon, .advanced):      return 5.0   // 8km
+        // Full Marathon
+        case (.fullMarathon, .beginner):      return 3.7   // 6km
+        case (.fullMarathon, .intermediate):  return 4.3   // 7km
+        case (.fullMarathon, .advanced):      return 5.6   // 9km
+        }
+    }
+
+    /// Peak aerobic easy run distance (miles). Absolute ceiling ~13km (8.1mi).
+    /// Recovery runs at peak will be 0.6× this = ~7.5km, shakeout = ~9km.
+    private func peakEasyRun(for race: RaceType, level: FitnessLevel) -> Double {
+        switch (race, level) {
+        // 5K — easy runs stay short
+        case (.fiveK, .beginner):       return 3.5   // ~5.6km
+        case (.fiveK, .intermediate):   return 4.0   // ~6.4km
+        case (.fiveK, .advanced):       return 5.0   // ~8km
+        // 10K
+        case (.tenK, .beginner):        return 4.0   // ~6.4km
+        case (.tenK, .intermediate):    return 5.0   // ~8km
+        case (.tenK, .advanced):        return 6.0   // ~9.6km
+        // Half Marathon
+        case (.halfMarathon, .beginner):      return 5.0   // ~8km
+        case (.halfMarathon, .intermediate):  return 6.0   // ~9.6km
+        case (.halfMarathon, .advanced):      return 7.0   // ~11.3km
+        // Full Marathon
+        case (.fullMarathon, .beginner):      return 6.0   // ~9.6km
+        case (.fullMarathon, .intermediate):  return 7.5   // ~12km
+        case (.fullMarathon, .advanced):      return 8.0   // ~13km
         }
     }
 
@@ -571,4 +819,35 @@ final class TrainingPlanGenerator {
 
 enum TrainingPhase {
     case base, build, peak, taper
+}
+
+/// Role-based easy run classification.
+/// Assigned by position within the week (chronological order),
+/// not by adjacency to hard sessions.
+enum EasyRunRole {
+    /// Post-hard-effort run — shortest of the week
+    case recovery
+    /// Mid-week shorter easy run
+    case shortEasy
+    /// Main base-building run — longest easy run of the week
+    case easy
+
+    /// Multiplier applied to the week's progression distance.
+    var weight: Double {
+        switch self {
+        case .recovery:  return 0.75
+        case .shortEasy: return 0.85
+        case .easy:      return 1.0
+        }
+    }
+
+    /// Minimum distance in miles per role.
+    /// Recovery ≥ 4km (2.5mi), Short Easy ≥ 5km (3.1mi), Easy ≥ 6km (3.7mi).
+    var floorMiles: Double {
+        switch self {
+        case .recovery:  return 2.5   // 4km
+        case .shortEasy: return 3.1   // 5km
+        case .easy:      return 3.7   // 6km
+        }
+    }
 }

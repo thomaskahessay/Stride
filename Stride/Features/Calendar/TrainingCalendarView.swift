@@ -162,9 +162,10 @@ struct TrainingCalendarView: View {
     }
 
     private var recentWorkouts: [WorkoutDay] {
-        let cutoff = calendar.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+        let now = DateProvider.shared.now
+        let cutoff = calendar.date(byAdding: .day, value: -7, to: now) ?? now
         return (profile.activePlan?.workoutDays ?? [])
-            .filter { $0.isCompleted && $0.effectiveDate >= cutoff && $0.effectiveDate <= Date() }
+            .filter { $0.isCompleted && $0.effectiveDate >= cutoff && $0.effectiveDate <= now }
             .sorted { $0.effectiveDate > $1.effectiveDate }
     }
 
@@ -174,7 +175,7 @@ struct TrainingCalendarView: View {
     /// For today and future dates, returns any planned WorkoutDay regardless of completion.
     /// This prevents unlogged past plan days (generated retroactively) from showing as "missed".
     private func plannedWorkout(for date: Date) -> WorkoutDay? {
-        let isPast = date < calendar.startOfDay(for: Date())
+        let isPast = date < calendar.startOfDay(for: DateProvider.shared.now)
         guard let day = profile.activePlan?.workoutDays.first(where: {
             calendar.isDate($0.effectiveDate, inSameDayAs: date)
         }) else { return nil }
@@ -183,7 +184,7 @@ struct TrainingCalendarView: View {
 
     private func historicalRun(for date: Date) -> HistoricalRun? {
         // Only show historical runs on past dates
-        guard date < calendar.startOfDay(for: Date()) else { return nil }
+        guard date < calendar.startOfDay(for: DateProvider.shared.now) else { return nil }
         return historicalRuns.first { calendar.isDate($0.date, inSameDayAs: date) }
     }
 

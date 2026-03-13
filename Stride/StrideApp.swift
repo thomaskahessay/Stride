@@ -56,6 +56,7 @@ struct AppRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             refreshNotifications()
+            Task { await HealthKitManager.shared.fetchRecentWorkouts() }
         }
         .onChange(of: profile?.activePlan?.workoutDays.count) {
             refreshNotifications()

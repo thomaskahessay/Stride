@@ -76,7 +76,7 @@ final class ProfileViewModel {
         currentWeek = plan.currentWeekNumber
         totalWeeks = plan.totalWeeks
 
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = Calendar.current.startOfDay(for: DateProvider.shared.now)
 
         // Only count run/strength workouts (not rest days) as "planned"
         let planned = plan.workoutDays.filter {
@@ -105,7 +105,7 @@ final class ProfileViewModel {
 
     private func calculateStreak(plan: TrainingPlan) -> Int {
         var streak = 0
-        var checkDate = Calendar.current.startOfDay(for: Date())
+        var checkDate = Calendar.current.startOfDay(for: DateProvider.shared.now)
 
         while true {
             let day = plan.workoutDays.first {
@@ -156,7 +156,7 @@ final class ProfileViewModel {
     var daysToRace: Int {
         let days = Calendar.current.dateComponents(
             [.day],
-            from: Calendar.current.startOfDay(for: Date()),
+            from: Calendar.current.startOfDay(for: DateProvider.shared.now),
             to: profile.raceDate
         ).day ?? 0
         return max(0, days)

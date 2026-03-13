@@ -87,10 +87,12 @@ struct PlanPreviewStepView: View {
                             .font(Font.stride.caption)
                             .foregroundStyle(.secondary)
 
-                        if !viewModel.recentRuns.isEmpty,
-                           let longest = viewModel.recentRuns.max(by: { $0.distanceKm < $1.distanceKm }) {
+                        if viewModel.longestRunMiles > 0 {
+                            let displayDist = viewModel.selectedUnitSystem == .kilometers
+                                ? viewModel.longestRunMiles * 1.60934
+                                : viewModel.longestRunMiles
                             Divider()
-                            Label("Long runs calibrated from your \(String(format: "%.1f", longest.distanceKm)) km recent run",
+                            Label("Long runs calibrated from your \(String(format: "%.1f", displayDist)) \(viewModel.selectedUnitSystem.shortLabel) longest run",
                                   systemImage: "checkmark.circle.fill")
                                 .font(Font.stride.caption)
                                 .foregroundStyle(Color.stride.mint)

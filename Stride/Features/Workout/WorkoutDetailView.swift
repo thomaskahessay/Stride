@@ -19,8 +19,12 @@ struct WorkoutDetailView: View {
                     VStack(alignment: .leading, spacing: .strideMD) {
                         headerCard
 
-                        if workout.workoutType != .restDay {
+                        if workout.workoutType.isRun {
                             statsRow
+                        }
+
+                        if let check = viewModel.readinessCheck(context: modelContext) {
+                            readinessScoreCard(check: check)
                         }
 
                         if workout.isCompleted, let log = workout.log {
@@ -38,7 +42,7 @@ struct WorkoutDetailView: View {
                         }
                     }
                     .padding(.strideMD)
-                    .padding(.bottom, 120)
+                    .padding(.bottom, 180)
                 }
 
                 VStack(spacing: 0) {
@@ -226,35 +230,93 @@ struct WorkoutDetailView: View {
     // MARK: - Actual Stats (post-run)
 
     private func actualStatsSection(log: WorkoutLog) -> some View {
-        GlassCard {
+        let showRunStats = workout.workoutType.isRun || log.strengthCompleted
+
+        return GlassCard {
             VStack(alignment: .leading, spacing: .strideSM) {
-                Label("What You Did", systemImage: "figure.run.circle.fill")
+                Label(
+                    workout.workoutType == .strengthDay && !log.strengthCompleted
+                        ? "Completed"
+                        : "What You Did",
+                    systemImage: workout.workoutType == .strengthDay && !log.strengthCompleted
+                        ? "checkmark.circle.fill"
+                        : "figure.run.circle.fill"
+                )
                     .font(Font.stride.headingSmall)
                     .foregroundStyle(Color.stride.mint)
 
-                Divider()
+                if let actualType = log.actualWorkoutType, actualType != workout.workoutType {
+                    HStack(spacing: 6) {
+                        Image(systemName: actualType.sfSymbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(actualType.accentColor)
+                        Text("Logged as \(actualType.rawValue)")
+                            .font(Font.stride.bodyMedium.weight(.semibold))
+                            .foregroundStyle(actualType.accentColor)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(actualType.accentFill)
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(actualType.accentColor.opacity(0.4), lineWidth: 1)
+                            )
+                    )
+                }
 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .strideSM) {
-                    actualStatCell(
-                        icon: "road.lanes",
-                        label: "Distance",
-                        value: log.actualDistanceMiles.formattedDistance(unit: units)
+                if log.strengthCompleted {
+                    HStack(spacing: 6) {
+                        Image(systemName: "dumbbell.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.stride.sky)
+                        Text("Strength completed")
+                            .font(Font.stride.bodyMedium.weight(.semibold))
+                            .foregroundStyle(Color.stride.sky)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(Color.stride.sky.opacity(0.15))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.stride.sky.opacity(0.4), lineWidth: 1)
+                            )
                     )
-                    actualStatCell(
-                        icon: "timer",
-                        label: "Duration",
-                        value: log.formattedDuration
-                    )
-                    actualStatCell(
-                        icon: "hare",
-                        label: "Avg Pace",
-                        value: actualPace(log: log)
-                    )
-                    if let hr = log.averageHeartRate {
+                }
+
+                if showRunStats {
+                    Divider()
+
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .strideSM) {
                         actualStatCell(
-                            icon: "heart.fill",
-                            label: "Avg Heart Rate",
-                            value: "\(Int(hr)) bpm"
+                            icon: "road.lanes",
+                            label: "Distance",
+                            value: log.actualDistanceMiles.formattedDistance(unit: units)
+                        )
+                        actualStatCell(
+                            icon: "timer",
+                            label: "Duration",
+                            value: log.formattedDuration
+                        )
+                        actualStatCell(
+                            icon: "hare",
+                            label: "Avg Pace",
+                            value: actualPace(log: log)
+                        )
+                        if let hr = log.averageHeartRate {
+                            actualStatCell(
+                                icon: "heart.fill",
+                                label: "Avg Heart Rate",
+                                value: "\(Int(hr)) bpm"
+                            )
+                        }
+                        actualStatCell(
+                            icon: "flame.fill",
+                            label: "Effort (RPE)",
+                            value: "\(log.effortRating) / 10"
                         )
                     }
                 }
@@ -337,6 +399,55 @@ struct WorkoutDetailView: View {
         }
     }
 
+    // MARK: - Readiness Score Card
+
+    private func readinessScoreCard(check: ReadinessCheck) -> some View {
+        let color = readinessColor(for: check.recommendation)
+        return GlassCard {
+            HStack(spacing: .strideMD) {
+                // Mini score ring
+                ZStack {
+                    Circle()
+                        .stroke(Color.stride.lavenderLight, lineWidth: 4)
+                    Circle()
+                        .trim(from: 0, to: check.readinessScore / 100.0)
+                        .stroke(color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+
+                    Text("\(Int(check.readinessScore))")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                }
+                .frame(width: 48, height: 48)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: check.recommendation.sfSymbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(color)
+                        Text(check.recommendation.rawValue)
+                            .font(Font.stride.bodyMedium.weight(.semibold))
+                    }
+
+                    Text(check.recommendation.description)
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func readinessColor(for recommendation: ReadinessRecommendation) -> Color {
+        switch recommendation {
+        case .sendIt: return Color.stride.mint
+        case .dialBack: return Color.stride.lavenderDeep
+        case .swapRecovery: return Color.stride.warmOrange
+        case .restToday: return Color.stride.coral
+        }
+    }
+
     // MARK: - Bottom Actions
 
     private var bottomActions: some View {
@@ -354,7 +465,7 @@ struct WorkoutDetailView: View {
                 .font(Font.stride.caption)
                 .foregroundStyle(.red.opacity(0.8))
             } else {
-                Button("Log This Workout") {
+                Button(workout.workoutType == .strengthDay ? "Mark as Complete" : "Log This Workout") {
                     viewModel.showLogWorkout = true
                 }
                 .buttonStyle(StridePrimaryButtonStyle())

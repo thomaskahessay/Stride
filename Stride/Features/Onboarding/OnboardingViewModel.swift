@@ -364,6 +364,7 @@ final class OnboardingViewModel {
                 raceDate: Date()
             )
         }
+        profile.longestRecentRunMiles = longestRunMiles
         profile.recentRuns = recentRuns
         return profile
     }

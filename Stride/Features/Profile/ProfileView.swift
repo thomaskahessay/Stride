@@ -10,6 +10,9 @@ struct ProfileView: View {
     @State private var showEditProfile = false
     @State private var showResetPlanConfirm = false
     @State private var showResetAllConfirm = false
+    #if DEBUG
+    @State private var showDebugTimeTravel = false
+    #endif
 
     init(profile: UserProfile) {
         self.profile = profile
@@ -60,6 +63,11 @@ struct ProfileView: View {
             } message: {
                 Text("This will delete your training plan, all logs, and your profile. This cannot be undone.")
             }
+            #if DEBUG
+            .sheet(isPresented: $showDebugTimeTravel) {
+                DebugTimeTravelView(profile: profile)
+            }
+            #endif
         }
     }
 
@@ -660,6 +668,11 @@ struct ProfileView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, .strideMD)
+        #if DEBUG
+        .onTapGesture(count: 3) {
+            showDebugTimeTravel = true
+        }
+        #endif
     }
 
     // MARK: - Actions
@@ -677,6 +690,7 @@ struct ProfileView: View {
     }
 
     private func resetAllData() {
+        try? modelContext.delete(model: ReadinessCheck.self)
         try? modelContext.delete(model: UserProfile.self)
         try? modelContext.save()
     }

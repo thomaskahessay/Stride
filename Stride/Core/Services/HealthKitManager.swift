@@ -47,8 +47,14 @@ struct HistoricalRunImportData {
 final class HealthKitManager {
     static let shared = HealthKitManager()
 
+    #if DEBUG
+    static var useMock = false
+    static let mock = MockHealthKitManager()
+    #endif
+
     var isAuthorized = false
     var recentWorkouts: [HealthKitWorkoutData] = []
+    var isRefreshing = false
 
     private let store = HKHealthStore()
 
@@ -70,6 +76,14 @@ final class HealthKitManager {
     // MARK: - Authorisation
 
     func requestAuthorisation() async {
+        #if DEBUG
+        if Self.useMock {
+            await Self.mock.requestAuthorisation()
+            isAuthorized = Self.mock.isAuthorized
+            recentWorkouts = Self.mock.recentWorkouts
+            return
+        }
+        #endif
         guard HKHealthStore.isHealthDataAvailable() else { return }
         do {
             try await store.requestAuthorization(toShare: [], read: readTypes)
@@ -83,7 +97,17 @@ final class HealthKitManager {
     // MARK: - Fetch Recent Running Workouts (last 7 days, for log pre-fill)
 
     func fetchRecentWorkouts() async {
+        #if DEBUG
+        if Self.useMock {
+            isRefreshing = true
+            await Self.mock.fetchRecentWorkouts()
+            recentWorkouts = Self.mock.recentWorkouts
+            isRefreshing = false
+            return
+        }
+        #endif
         guard isAuthorized else { return }
+        isRefreshing = true
 
         let predicate = HKQuery.predicateForSamples(
             withStart: Date().addingTimeInterval(-7 * 24 * 3600),
@@ -118,6 +142,7 @@ final class HealthKitManager {
         }
 
         recentWorkouts = workoutData.sorted { $0.workoutDate > $1.workoutDate }
+        isRefreshing = false
     }
 
     // MARK: - Match to Workout Day
@@ -133,6 +158,9 @@ final class HealthKitManager {
     /// Queries all running workouts from the past `months` months.
     /// Returns raw import data — call HistoricalRunService.importIfNeeded to persist.
     func fetchHistoricalRuns(months: Int = 3) async -> [HistoricalRunImportData] {
+        #if DEBUG
+        if Self.useMock { return await Self.mock.fetchHistoricalRuns(months: months) }
+        #endif
         guard isAuthorized else { return [] }
 
         let startDate = Calendar.current.date(byAdding: .month, value: -months, to: Date()) ?? Date()
@@ -313,6 +341,9 @@ final class HealthKitManager {
     /// Fetches last night's sleep data from HealthKit.
     /// Looks for sleep samples between 6 PM yesterday and noon today.
     func fetchLastNightSleep() async -> HealthKitSleepData? {
+        #if DEBUG
+        if Self.useMock { return await Self.mock.fetchLastNightSleep() }
+        #endif
         guard isAuthorized else { return nil }
         guard let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { return nil }
 

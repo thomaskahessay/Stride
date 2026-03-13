@@ -1,16 +1,14 @@
 import SwiftUI
 
-struct AdaptationBannerCard: View {
-    let records: [AdaptationRecord]
+struct CoachRecommendationCard: View {
+    let recommendation: CoachRecommendation
     let onDismiss: () -> Void
-    let onUndo: () -> Void
 
-    private var aggregatedReason: String {
-        guard let first = records.first else { return "" }
-        if records.count == 1 {
-            return first.reason
+    private var iconColor: Color {
+        switch recommendation.severity {
+        case .info: return Color.stride.lavenderDeep
+        case .warning: return Color.stride.warmOrange
         }
-        return "Your plan has been adjusted based on recent activity (\(records.count) changes)."
     }
 
     var body: some View {
@@ -19,50 +17,39 @@ struct AdaptationBannerCard: View {
                 HStack(spacing: .strideSM) {
                     ZStack {
                         Circle()
-                            .fill(Color.stride.warmOrange.opacity(0.2))
+                            .fill(iconColor.opacity(0.2))
                             .frame(width: 36, height: 36)
-                        Image(systemName: "brain.head.profile")
+                        Image(systemName: "message.fill")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.stride.warmOrange)
+                            .foregroundStyle(iconColor)
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Plan adjusted")
+                        Text(recommendation.title)
                             .font(Font.stride.bodyMedium.weight(.semibold))
-                        Text(aggregatedReason)
+                        Text(recommendation.message)
                             .font(Font.stride.caption)
                             .foregroundStyle(.secondary)
                             .lineSpacing(2)
                     }
+
+                    Spacer(minLength: 0)
                 }
 
-                HStack(spacing: .strideSM) {
-                    Button(action: onDismiss) {
-                        Text("Got it")
-                            .font(Font.stride.bodyMedium.weight(.semibold))
-                            .foregroundStyle(Color.stride.warmOrange)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: .strideRadiusSM, style: .continuous)
-                                    .fill(Color.stride.warmOrange.opacity(0.12))
-                            )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: onUndo) {
-                        Text("Undo")
-                            .font(Font.stride.bodyMedium.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: .strideRadiusSM, style: .continuous)
-                                    .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                    .buttonStyle(.plain)
+                Button {
+                    onDismiss()
+                } label: {
+                    Text("Got it")
+                        .font(Font.stride.bodyMedium.weight(.semibold))
+                        .foregroundStyle(iconColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: .strideRadiusSM, style: .continuous)
+                                .fill(iconColor.opacity(0.12))
+                        )
                 }
+                .buttonStyle(.plain)
             }
         }
     }

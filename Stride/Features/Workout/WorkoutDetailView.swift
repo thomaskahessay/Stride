@@ -85,6 +85,7 @@ struct WorkoutDetailView: View {
                 workoutDay: workout,
                 weeklyLoggedMiles: viewModel.weeklyLoggedMiles,
                 weeklyTargetMiles: viewModel.weeklyTargetMiles,
+                isEditing: workout.isCompleted,
                 showConfettiOnParent: $showConfetti
             )
         }
@@ -464,11 +465,19 @@ struct WorkoutDetailView: View {
                 }
                 .font(Font.stride.caption)
                 .foregroundStyle(.red.opacity(0.8))
+            } else if viewModel.isFutureWorkout && workout.workoutType != .restDay {
+                // Future workouts can't be logged yet
+                Text("You can log this workout on the day or after")
+                    .font(Font.stride.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             } else {
-                Button(workout.workoutType == .strengthDay ? "Mark as Complete" : "Log This Workout") {
-                    viewModel.showLogWorkout = true
+                if !workout.isSkipped {
+                    Button(workout.workoutType == .strengthDay ? "Mark as Complete" : "Log This Workout") {
+                        viewModel.showLogWorkout = true
+                    }
+                    .buttonStyle(StridePrimaryButtonStyle())
                 }
-                .buttonStyle(StridePrimaryButtonStyle())
 
                 if viewModel.canAdjust {
                     Button(viewModel.skipButtonLabel) {

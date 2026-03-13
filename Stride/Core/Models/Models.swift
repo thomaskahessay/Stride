@@ -3,7 +3,7 @@ import SwiftData
 
 // MARK: - Enumerations
 
-enum RaceType: String, Codable, CaseIterable {
+nonisolated enum RaceType: String, Codable, CaseIterable {
     case fiveK = "5K"
     case tenK = "10K"
     case halfMarathon = "Half Marathon"
@@ -325,7 +325,7 @@ enum ActivityLevel: String, Codable, CaseIterable {
 
 /// All training paces derived from the user's Zone 2 easy pace.
 /// Stored internally as seconds per mile; convert to km for display.
-struct PaceZones: Codable {
+nonisolated struct PaceZones: Codable {
     let recoveryPaceSecPerMile: Int    // RPE 3–4  — easy jog / between intervals
     let easyPaceSecPerMile: Int        // RPE 4–5  — Zone 2 anchor (user-supplied)
     let longRunPaceSecPerMile: Int     // RPE 5    — aerobic long run (same as easy)
@@ -390,7 +390,7 @@ struct RecentRunEntry: Codable, Identifiable {
     var distanceMiles: Double { distanceKm / 1.60934 }
 }
 
-struct RaceTime: Codable {
+nonisolated struct RaceTime: Codable {
     var raceDistance: RaceType
     var finishTimeSeconds: Int
     var raceDate: Date
@@ -646,6 +646,10 @@ final class WorkoutDay {
 
     var isPast: Bool {
         effectiveDate < Calendar.current.startOfDay(for: DateProvider.shared.now)
+    }
+
+    var isFuture: Bool {
+        effectiveDate > Calendar.current.startOfDay(for: DateProvider.shared.now)
     }
 
     var isMissed: Bool {

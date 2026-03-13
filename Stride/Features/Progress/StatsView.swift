@@ -9,6 +9,7 @@ struct StatsView: View {
     @Query(sort: \HistoricalRun.startDate, order: .forward) private var historicalRuns: [HistoricalRun]
 
     @State private var showAddTimeTrial = false
+    @State private var recentRunsExpanded = false
 
     private let estimator = FinishTimeEstimator()
 
@@ -28,6 +29,9 @@ struct StatsView: View {
 
                         // Training stats list
                         trainingStatsCard
+
+                        // Recent runs list (expandable by month)
+                        recentRunsCard
 
                     }
                     .padding(.strideMD)
@@ -321,6 +325,181 @@ struct StatsView: View {
         return String(format: "%.1f %@", profile.unitPreference.convert(longestMiles), profile.unitPreference.shortLabel)
     }
 
+    // MARK: - Recent Runs Card
+
+    /// A unified run entry for display purposes.
+    private struct RunEntry: Identifiable {
+        let id: UUID
+        let date: Date
+        let distanceMiles: Double
+        let durationSeconds: Double
+        let paceSecondsPerMile: Double
+        let workoutType: String // e.g. "Easy", "Tempo", or "Run"
+    }
+
+    /// All runs (historical + plan-logged) merged and sorted newest-first.
+    private var allRuns: [RunEntry] {
+        var runs: [RunEntry] = []
+
+        // Historical runs
+        for hr in historicalRuns {
+            runs.append(RunEntry(
+                id: hr.id,
+                date: hr.date,
+                distanceMiles: hr.distanceMiles,
+                durationSeconds: hr.durationSeconds,
+                paceSecondsPerMile: hr.averagePaceSecondsPerMile,
+                workoutType: "Run"
+            ))
+        }
+
+        // Plan-logged runs
+        if let workoutDays = profile.activePlan?.workoutDays {
+            for day in workoutDays where day.workoutType.isRun {
+                if let log = day.log, log.actualDistanceMiles > 0, log.actualDurationSeconds > 0 {
+                    let pace = Double(log.actualDurationSeconds) / log.actualDistanceMiles
+                    runs.append(RunEntry(
+                        id: log.id,
+                        date: day.date,
+                        distanceMiles: log.actualDistanceMiles,
+                        durationSeconds: Double(log.actualDurationSeconds),
+                        paceSecondsPerMile: pace,
+                        workoutType: day.workoutType.rawValue
+                    ))
+                }
+            }
+        }
+
+        return runs.sorted { $0.date > $1.date }
+    }
+
+    /// Runs grouped by month, sorted newest month first.
+    private var runsByMonth: [(key: String, runs: [RunEntry])] {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+
+        let grouped = Dictionary(grouping: allRuns) { formatter.string(from: $0.date) }
+        // Sort by the date of the first run in each group (newest first)
+        return grouped.map { (key: $0.key, runs: $0.value) }
+            .sorted { ($0.runs.first?.date ?? .distantPast) > ($1.runs.first?.date ?? .distantPast) }
+    }
+
+    private var recentRunsCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 0) {
+                // Header with caret
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        recentRunsExpanded.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Label("Recent Runs", systemImage: "figure.run")
+                            .font(Font.stride.headingSmall)
+                            .foregroundStyle(Color.stride.lavenderDeep)
+
+                        Spacer()
+
+                        HStack(spacing: .strideXS) {
+                            Text("\(allRuns.count)")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.stride.lavenderDeep)
+                                .rotationEffect(.degrees(recentRunsExpanded ? 90 : 0))
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if recentRunsExpanded {
+                    if allRuns.isEmpty {
+                        Text("No runs logged yet")
+                            .font(Font.stride.bodyMedium)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, .strideSM)
+                    } else {
+                        ForEach(Array(runsByMonth.enumerated()), id: \.element.key) { index, group in
+                            // Month header
+                            Text(group.key)
+                                .font(Font.stride.label)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, index == 0 ? .strideSM : .strideMD)
+                                .padding(.bottom, .strideXS)
+
+                            ForEach(group.runs) { run in
+                                runRow(run)
+                                if run.id != group.runs.last?.id {
+                                    Divider().padding(.leading, 32)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func runRow(_ run: RunEntry) -> some View {
+        HStack(spacing: .strideSM) {
+            // Date
+            VStack(alignment: .center, spacing: 0) {
+                Text(run.date.formatted(.dateTime.day()))
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                Text(run.date.formatted(.dateTime.weekday(.abbreviated)))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 36)
+
+            // Details
+            VStack(alignment: .leading, spacing: 2) {
+                Text(run.workoutType)
+                    .font(Font.stride.bodyMedium.weight(.medium))
+                    .foregroundStyle(.primary)
+
+                HStack(spacing: .strideSM) {
+                    Text(String(format: "%.1f %@", profile.unitPreference.convert(run.distanceMiles), profile.unitPreference.shortLabel))
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(formatDuration(run.durationSeconds))
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            // Pace
+            Text(formatPace(run.paceSecondsPerMile))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.stride.lavenderDeep)
+        }
+        .padding(.vertical, .strideXS)
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let totalSecs = Int(seconds)
+        let h = totalSecs / 3600
+        let m = (totalSecs % 3600) / 60
+        let s = totalSecs % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+
+    private func formatPace(_ paceSecondsPerMile: Double) -> String {
+        let paceSeconds = profile.unitPreference == .miles ? paceSecondsPerMile : paceSecondsPerMile / 1.60934
+        let mins = Int(paceSeconds) / 60
+        let secs = Int(paceSeconds) % 60
+        return String(format: "%d:%02d /%@", mins, secs, profile.unitPreference.shortLabel)
+    }
+
     /// Weekly average distance in user's preferred units.
     private var weeklyAvgFormatted: String {
         // Try historical-based calculation first
@@ -527,7 +706,7 @@ private struct ProjectionTrendChart: View {
     /// Y-axis is inverted: lower seconds (faster) = higher on chart.
     private func chartPoints(in size: CGSize) -> [CGPoint] {
         guard trend.count >= 2 else {
-            if let single = trend.first {
+            if trend.first != nil {
                 return [CGPoint(x: size.width / 2, y: size.height / 2)]
             }
             return []

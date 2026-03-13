@@ -35,6 +35,11 @@ final class WorkoutDetailViewModel {
         workout.log != nil
     }
 
+    /// Future workouts cannot be logged — only today and past workouts.
+    var isFutureWorkout: Bool {
+        workout.isFuture
+    }
+
     var skipButtonLabel: String {
         workout.isSkipped ? "Unmark as Skipped" : "Skip Workout"
     }
@@ -67,7 +72,7 @@ final class WorkoutDetailViewModel {
         ) ?? now
         let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
         return plan.workoutDays
-            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun && !$0.isSkipped }
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun }
             .map { $0.targetDistanceMiles }
             .reduce(0, +)
     }

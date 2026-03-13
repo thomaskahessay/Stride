@@ -16,6 +16,8 @@ struct LogWorkoutView: View {
     var units: UnitSystem = .kilometers
     var weeklyLoggedMiles: Double = 0
     var weeklyTargetMiles: Double = 0
+    var isEditing: Bool = false
+    var prefillHealthKitData: HealthKitWorkoutData? = nil
     @Binding var showConfettiOnParent: Bool
 
     @Environment(\.modelContext) private var modelContext
@@ -118,15 +120,24 @@ struct LogWorkoutView: View {
             } message: {
                 Text("You've already logged a workout for today. View or edit it from the workout detail screen.")
             }
+            .onAppear {
+                if isEditing, let log = workoutDay?.log {
+                    prefillFromExistingLog(log)
+                } else if let hkData = prefillHealthKitData {
+                    selectedHKWorkout = hkData
+                    applyHealthKitData(hkData)
+                    mode = .manualEntry
+                }
+            }
         }
     }
 
     // MARK: - Navigation helpers
 
     private var navigationTitle: String {
-        if isStrengthDayLog { return "Log Strength" }
+        if isStrengthDayLog { return isEditing ? "Edit Strength" : "Log Strength" }
         switch mode {
-        case .selectSource: return "Log Workout"
+        case .selectSource: return isEditing ? "Edit Workout" : "Log Workout"
         case .pickFromHealthKit: return "Select Run"
         case .manualEntry: return selectedHKWorkout != nil ? "Confirm Import" : "Log Workout"
         }
@@ -654,15 +665,60 @@ struct LogWorkoutView: View {
         }
     }
 
+    private func prefillFromExistingLog(_ log: WorkoutLog) {
+        distanceMiles = log.actualDistanceMiles
+        distanceText = String(format: "%.1f", units.convert(log.actualDistanceMiles))
+        let total = log.actualDurationSeconds
+        durationHours = total / 3600
+        durationMinutes = (total % 3600) / 60
+        durationSeconds = total % 60
+        effortRating = log.effortRating
+        notes = log.notes
+        if let hr = log.averageHeartRate {
+            heartRateText = String(Int(hr.rounded()))
+        }
+        if let pace = log.averagePaceSecPerMile {
+            let displayPace = units == .kilometers
+                ? Int(Double(pace) / 1.60934)
+                : pace
+            paceText = formatPace(displayPace)
+        }
+        if let typeOverride = log.actualWorkoutType {
+            selectedWorkoutType = typeOverride
+        } else if let workout = workoutDay {
+            selectedWorkoutType = workout.workoutType.isRun ? workout.workoutType : .easyRun
+        }
+        if log.strengthCompleted {
+            logRunOnStrengthDay = true
+        }
+        if let activity = log.restDayActivityType {
+            restDayActivityType = activity
+        }
+        // For editing, skip source selection and go straight to manual entry
+        // (unless it's a strength-only log with no run data)
+        if workoutDay?.workoutType == .strengthDay && !log.strengthCompleted {
+            // Stay on strength day form
+        } else {
+            mode = .manualEntry
+        }
+    }
+
     private func prefillFromWorkoutDay() {
         guard let workout = workoutDay else { return }
         distanceMiles = workout.targetDistanceMiles
         distanceText = String(format: "%.1f", units.convert(workout.targetDistanceMiles))
         selectedWorkoutType = workout.workoutType.isRun ? workout.workoutType : .easyRun
-        // Don't prefill duration — user must enter their actual time
-        durationHours = 0
-        durationMinutes = 0
-        durationSeconds = 0
+        // Prefill duration from target pace if available: time = distance × pace
+        if let paceSecPerMile = workout.targetPaceSecPerMile, workout.targetDistanceMiles > 0 {
+            let totalSeconds = Int(Double(paceSecPerMile) * workout.targetDistanceMiles)
+            durationHours = totalSeconds / 3600
+            durationMinutes = (totalSeconds % 3600) / 60
+            durationSeconds = totalSeconds % 60
+        } else {
+            durationHours = 0
+            durationMinutes = 0
+            durationSeconds = 0
+        }
     }
 
     private func applyHealthKitData(_ data: HealthKitWorkoutData) {
@@ -706,12 +762,19 @@ struct LogWorkoutView: View {
     private func saveStrengthDay() {
         guard let workout = workoutDay else { return }
 
-        if workout.log != nil {
+        if workout.log != nil && !isEditing {
             showAlreadyLoggedAlert = true
             return
         }
 
         isSaving = true
+
+        if isEditing, let existing = workout.log {
+            existing.notes = notes
+            try? modelContext.save()
+            dismiss()
+            return
+        }
 
         let log = WorkoutLog(
             actualDistanceMiles: 0,
@@ -740,8 +803,8 @@ struct LogWorkoutView: View {
     private func save() {
         guard let workout = workoutDay else { return }
 
-        // Prevent overwriting an existing log
-        if workout.log != nil {
+        // Prevent overwriting an existing log (unless editing)
+        if workout.log != nil && !isEditing {
             showAlreadyLoggedAlert = true
             return
         }
@@ -752,6 +815,23 @@ struct LogWorkoutView: View {
         let typeOverride: WorkoutType? = (selectedWorkoutType != workout.workoutType)
             ? selectedWorkoutType
             : nil
+
+        if isEditing, let existing = workout.log {
+            existing.actualDistanceMiles = distanceMiles
+            existing.actualDurationSeconds = totalDurationSeconds
+            existing.effortRating = effortRating
+            existing.notes = notes
+            existing.sourceHealthKit = selectedHKWorkout != nil
+            existing.averageHeartRate = parsedHeartRate
+            existing.averagePaceSecPerMile = effectivePaceSecPerMile
+            existing.restDayActivityType = isRestDayLog ? restDayActivityType : nil
+            existing.actualWorkoutType = typeOverride
+            existing.strengthCompleted = logRunOnStrengthDay
+            try? modelContext.save()
+            NotificationCenter.default.post(name: Notification.Name("workoutLogged"), object: nil)
+            dismiss()
+            return
+        }
 
         let log = WorkoutLog(
             actualDistanceMiles: distanceMiles,

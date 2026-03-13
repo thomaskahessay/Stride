@@ -7,10 +7,12 @@ final class DashboardViewModel {
     // MARK: - State
     var todayWorkout: WorkoutDay?
     var nextWorkout: WorkoutDay?
+    var nextRunWorkout: WorkoutDay?
     var currentWeekDays: [WorkoutDay] = []
     var weeklyCompletedMiles: Double = 0
     var weeklyTargetMiles: Double = 0
-    var currentStreak: Int = 0
+    var weeklyWorkoutsCompleted: Int = 0
+    var weeklyWorkoutsPlanned: Int = 0
     var daysToRace: Int = 0
     var planCompletionPercent: Double = 0
     var hasCompletedReadyCheckToday: Bool = false
@@ -45,25 +47,26 @@ final class DashboardViewModel {
             cal.isDate($0.effectiveDate, inSameDayAs: today)
         }
 
-        // Next workout — find the next non-rest day after today
+        // Next workout — find the very next day after today (including rest days)
         if let tomorrow = cal.date(byAdding: .day, value: 1, to: today) {
-            nextWorkout = plan.workoutDays
-                .filter { $0.effectiveDate >= tomorrow && $0.workoutType != .restDay }
+            let upcoming = plan.workoutDays
+                .filter { $0.effectiveDate >= tomorrow }
                 .sorted { $0.effectiveDate < $1.effectiveDate }
-                .first
+            nextWorkout = upcoming.first
+            // Also find next non-rest workout (for use on rest days)
+            nextRunWorkout = upcoming.first { $0.workoutType != .restDay }
         }
 
         // Current week days — Sunday to Saturday of the current week.
-        // For past days, only include completed workouts — unlogged past plan entries are hidden
-        // since the plan was generated retroactively and the user never ran those days in-app.
-        let weekday = cal.component(.weekday, from: today) // 1 = Sunday
+        // Show all days from when the plan was generated onwards (hide retroactive pre-plan days).
+        let planCreated = cal.startOfDay(for: plan.generatedAt)
+        let weekday = cal.component(.weekday, from: today)
         let stripStart = cal.date(byAdding: .day, value: -(weekday - 1), to: today) ?? today
         let stripEnd   = cal.date(byAdding: .day, value: 7, to: stripStart) ?? today
         currentWeekDays = plan.workoutDays
             .filter { day in
                 guard day.effectiveDate >= stripStart && day.effectiveDate < stripEnd else { return false }
-                if day.effectiveDate < today { return day.isCompleted }
-                return true
+                return day.effectiveDate >= planCreated
             }
             .sorted { $0.effectiveDate < $1.effectiveDate }
 
@@ -71,8 +74,6 @@ final class DashboardViewModel {
         let weekStart = cal.date(
             from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
         ) ?? today
-        let weekEnd = cal.date(byAdding: .day, value: 6, to: weekStart) ?? today
-
         // Days to race
         let components = cal.dateComponents([.day], from: today, to: profile.raceDate)
         daysToRace = max(0, components.day ?? 0)
@@ -81,9 +82,7 @@ final class DashboardViewModel {
         planCompletionPercent = plan.completionPercentage
 
         // Weekly miles — use effectiveDate so moved workouts count in the right week.
-        // Each workout's distance is converted to display units and rounded to 1 decimal
-        // BEFORE summing, so the total always matches the per-workout values the user sees.
-        let units = profile.unitPreference
+        // Both values are stored in raw miles; unit conversion happens at display time.
 
         // Completed: only days up to today that have a log
         weeklyCompletedMiles = plan.workoutDays
@@ -92,17 +91,20 @@ final class DashboardViewModel {
             .reduce(0, +)
         // Target: the full week's planned mileage (Sun–Sat), excluding days before the plan was generated
         let weekEndSat = cal.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
-        let planCreated = cal.startOfDay(for: plan.generatedAt)
         let targetStart = max(weekStart, planCreated)
-        // Round each workout in display units first, then sum, then convert back to miles
-        let targetInDisplayUnits = plan.workoutDays
-            .filter { $0.effectiveDate >= targetStart && $0.effectiveDate < weekEndSat && $0.workoutType.isRun && !$0.isSkipped }
-            .map { (units.convert($0.targetDistanceMiles) * 10).rounded() / 10 }
+        // Sum raw miles — unit conversion happens at display time in WeeklyProgressCard
+        weeklyTargetMiles = plan.workoutDays
+            .filter { $0.effectiveDate >= targetStart && $0.effectiveDate < weekEndSat && $0.workoutType.isRun }
+            .map { $0.targetDistanceMiles }
             .reduce(0, +)
-        weeklyTargetMiles = units == .miles ? targetInDisplayUnits : targetInDisplayUnits / 1.60934
 
-        // Streak
-        currentStreak = calculateStreak(plan: plan)
+        // Weekly consistency
+        let thisWeekWorkouts = plan.workoutDays.filter {
+            $0.effectiveDate >= weekStart && $0.effectiveDate < weekEndSat
+            && $0.workoutType != .restDay
+        }
+        weeklyWorkoutsPlanned = thisWeekWorkouts.count
+        weeklyWorkoutsCompleted = thisWeekWorkouts.filter { $0.isCompleted }.count
 
         // Ready Check — has one been completed today?
         if let ctx = modelContext {
@@ -146,59 +148,6 @@ final class DashboardViewModel {
         return WorkoutDetailViewModel(workout: workout, plan: plan)
     }
 
-    // MARK: - Streak calculation
-    //
-    // Streak = consecutive days of plan adherence.
-    // - Workout day + completed → streak continues (+1)
-    // - Rest day + no log → streak continues (+1, resting IS the plan)
-    // - Rest day + any log → streak continues (+1, bonus effort)
-    // - Key workout missed (past, not completed, not skipped) → streak breaks
-    // - Flexible workout missed → streak continues (easy runs are flexible)
-    // - Today's workout not yet done → don't break (day isn't over)
-
-    private func calculateStreak(plan: TrainingPlan) -> Int {
-        let cal = Calendar.current
-        let now = DateProvider.shared.now
-        var streak = 0
-        var hasCompletedAny = false
-        var checkDate = cal.startOfDay(for: now)
-
-        while true {
-            let day = plan.workoutDays.first {
-                cal.isDate($0.effectiveDate, inSameDayAs: checkDate)
-            }
-
-            // No plan day for this date — we've gone past the plan boundary
-            guard let day else { break }
-
-            let isToday = cal.isDate(checkDate, inSameDayAs: now)
-
-            if day.workoutType == .restDay || day.workoutType == .strengthDay {
-                // Rest days and strength days are neutral — continue a streak but can't start one
-                if hasCompletedAny {
-                    streak += 1
-                }
-            } else if day.isCompleted {
-                hasCompletedAny = true
-                streak += 1
-            } else if isToday {
-                // Today's workout isn't done yet — don't break, don't count
-            } else if day.isPast && day.workoutType.isHard {
-                break // only missed KEY workouts break the streak
-            } else if day.isPast {
-                // Missed flexible workout (easy run, recovery, strength) — don't break
-                if hasCompletedAny {
-                    streak += 1
-                }
-            }
-
-            guard let prev = cal.date(byAdding: .day, value: -1, to: checkDate) else { break }
-            checkDate = prev
-        }
-
-        return streak
-    }
-
     // MARK: - Computed helpers
 
     var weeklyProgressFraction: Double {
@@ -225,6 +174,18 @@ final class DashboardViewModel {
     /// True when today's workout doesn't need a Ready Check (rest days, strength days).
     var skipReadyCheck: Bool {
         isRestDay || isStrengthDay
+    }
+
+    /// The most recent HealthKit run from today, if today's workout hasn't been logged yet.
+    var todayHealthKitRun: HealthKitWorkoutData? {
+        guard let workout = todayWorkout,
+              !workout.isCompleted,
+              workout.workoutType != .restDay else { return nil }
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: DateProvider.shared.now)
+        return HealthKitManager.shared.recentWorkouts.first { hkRun in
+            cal.isDate(hkRun.workoutDate, inSameDayAs: today)
+        }
     }
 
     var motivationalMessage: String {

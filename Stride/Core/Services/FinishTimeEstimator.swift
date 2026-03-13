@@ -148,9 +148,11 @@ struct CumulativeProjection {
 extension FinishTimeEstimator {
 
     /// Extract qualifying runs from completed plan workouts.
+    /// Only includes performance-relevant runs (long, tempo, intervals) —
+    /// easy and recovery runs are excluded as their slower pace skews projections.
     static func qualifyingRuns(from workoutDays: [WorkoutDay]) -> [QualifyingRun] {
         workoutDays.compactMap { workout -> QualifyingRun? in
-            guard workout.workoutType.isRun,
+            guard workout.workoutType.isHard,
                   let log = workout.log,
                   log.actualDistanceMiles > 0,
                   log.actualDurationSeconds > 0 else { return nil }

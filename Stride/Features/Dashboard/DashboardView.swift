@@ -9,6 +9,8 @@ struct DashboardView: View {
     @State private var selectedWorkout: WorkoutDay? = nil
     @State private var showReadyCheck = false
     @State private var hasAutoShownReadyCheck = false
+    @State private var showHKLogWorkout = false
+    @State private var showConfetti = false
 
     init(profile: UserProfile) {
         self.profile = profile
@@ -45,15 +47,39 @@ struct DashboardView: View {
 
                         // Today's Workout (prominent)
                         if viewModel.isRestDay {
-                            RestDayCard(message: viewModel.motivationalMessage)
+                            RestDayCard(
+                                message: viewModel.motivationalMessage,
+                                nextWorkout: viewModel.nextRunWorkout,
+                                units: profile.unitPreference,
+                                onTapNext: { if let next = viewModel.nextRunWorkout { selectedWorkout = next } }
+                            )
                         } else if let workout = viewModel.todayWorkout {
                             TodayWorkoutCard(
                                 workout: workout,
                                 nextWorkout: viewModel.todayIsCompleted ? viewModel.nextWorkout : nil,
                                 units: profile.unitPreference,
                                 onTapToday: { selectedWorkout = workout },
-                                onTapNext: { if let next = viewModel.nextWorkout { selectedWorkout = next } }
+                                onTapNext: {
+                                    if let next = viewModel.nextWorkout {
+                                        // If next is a rest day, tap should go to the workout after it
+                                        if next.workoutType == .restDay, let run = viewModel.nextRunWorkout {
+                                            selectedWorkout = run
+                                        } else {
+                                            selectedWorkout = next
+                                        }
+                                    }
+                                }
                             )
+                        }
+
+                        // HealthKit run detected — quick log banner
+                        if let hkRun = viewModel.todayHealthKitRun {
+                            HealthKitRunBanner(
+                                hkRun: hkRun,
+                                units: profile.unitPreference
+                            ) {
+                                showHKLogWorkout = true
+                            }
                         }
 
                         // Weekly Progress
@@ -63,10 +89,13 @@ struct DashboardView: View {
                             units: profile.unitPreference
                         )
 
-                        // Streak + Plan Progress
+                        // Weekly Consistency + Plan Progress
                         HStack(spacing: .strideMD) {
-                            StreakBadgeView(streak: viewModel.currentStreak, isRestDay: viewModel.isRestDay)
-                                .frame(maxWidth: .infinity)
+                            WeeklyConsistencyCard(
+                                completed: viewModel.weeklyWorkoutsCompleted,
+                                planned: viewModel.weeklyWorkoutsPlanned
+                            )
+                            .frame(maxWidth: .infinity)
 
                             PlanProgressCard(completion: viewModel.planCompletionPercent)
                                 .frame(maxWidth: .infinity)
@@ -113,6 +142,16 @@ struct DashboardView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("workoutLogged"))) { _ in
                 viewModel.refresh()
+            }
+            .sheet(isPresented: $showHKLogWorkout, onDismiss: {
+                viewModel.refresh()
+            }) {
+                LogWorkoutView(
+                    workoutDay: viewModel.todayWorkout,
+                    units: profile.unitPreference,
+                    prefillHealthKitData: viewModel.todayHealthKitRun,
+                    showConfettiOnParent: $showConfetti
+                )
             }
         }
     }
@@ -292,7 +331,7 @@ struct TodayWorkoutCard: View {
     var body: some View {
         if isCompleted, let next = nextWorkout {
             // Combined card: compact completed summary + up next preview
-            HeroGlassCard(tint: next.workoutType.accentColor) {
+            HeroGlassCard(tint: next.workoutType == .restDay ? Color(.systemGray4) : next.workoutType.accentColor) {
                 VStack(alignment: .leading, spacing: 0) {
                     // Compact completed summary (tappable)
                     Button(action: onTapToday) {
@@ -333,42 +372,50 @@ struct TodayWorkoutCard: View {
                         .frame(height: 1)
                         .padding(.vertical, .strideSM)
 
-                    // Up next preview (tappable)
-                    Button(action: onTapNext) {
+                    // Up next preview
+                    if next.workoutType == .restDay {
+                        // Rest day preview — non-tappable, just informational
                         VStack(alignment: .leading, spacing: .strideSM) {
                             HStack {
-                                Label("UP NEXT — \(nextDayLabel(next))", systemImage: "arrow.right.circle.fill")
+                                Label("UP NEXT — \(nextDayLabel(next))", systemImage: "moon.fill")
                                     .font(Font.stride.label)
-                                    .foregroundStyle(next.workoutType.accentColor)
+                                    .foregroundStyle(.secondary)
                                     .tracking(1.0)
                                 Spacer()
-                                WorkoutTypeBadge(type: next.workoutType)
                             }
 
-                            Text(next.workoutTitle)
+                            Text("Rest Day")
                                 .font(.system(size: 22, weight: .bold, design: .rounded))
                                 .foregroundStyle(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
 
-                            if next.workoutType.isRun {
-                                HStack(spacing: .strideLG) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(formatDistance(next.targetDistanceMiles))
-                                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                                        Text(units.shortLabel)
-                                            .font(Font.stride.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
+                            Text("Recovery is part of the plan. You earned it.")
+                                .font(Font.stride.bodyMedium)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        // Regular workout preview (tappable)
+                        Button(action: onTapNext) {
+                            VStack(alignment: .leading, spacing: .strideSM) {
+                                HStack {
+                                    Label("UP NEXT — \(nextDayLabel(next))", systemImage: "arrow.right.circle.fill")
+                                        .font(Font.stride.label)
+                                        .foregroundStyle(next.workoutType.accentColor)
+                                        .tracking(1.0)
+                                    Spacer()
+                                    WorkoutTypeBadge(type: next.workoutType)
+                                }
 
-                                    Rectangle()
-                                        .fill(Color.secondary.opacity(0.2))
-                                        .frame(width: 1, height: 28)
+                                Text(next.workoutTitle)
+                                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
 
-                                    if let pace = next.targetPaceSecPerMile {
+                                if next.workoutType.isRun {
+                                    HStack(spacing: .strideLG) {
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(pace.formattedPace(unit: units))
-                                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                                            Text("target pace")
+                                            Text(formatDistance(next.targetDistanceMiles))
+                                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                            Text(units.shortLabel)
                                                 .font(Font.stride.caption)
                                                 .foregroundStyle(.secondary)
                                         }
@@ -376,46 +423,60 @@ struct TodayWorkoutCard: View {
                                         Rectangle()
                                             .fill(Color.secondary.opacity(0.2))
                                             .frame(width: 1, height: 28)
-                                    }
 
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(next.effortLevel.rawValue)
-                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                        Text("effort")
-                                            .font(Font.stride.caption)
-                                            .foregroundStyle(.secondary)
+                                        if let pace = next.targetPaceSecPerMile {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(pace.formattedPace(unit: units))
+                                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                                Text("target pace")
+                                                    .font(Font.stride.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+
+                                            Rectangle()
+                                                .fill(Color.secondary.opacity(0.2))
+                                                .frame(width: 1, height: 28)
+                                        }
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(next.effortLevel.rawValue)
+                                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                            Text("effort")
+                                                .font(Font.stride.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                } else {
+                                    HStack(spacing: .strideLG) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(formatDuration(next.targetDurationMinutes))
+                                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                            Text("duration")
+                                                .font(Font.stride.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+
+                                        Rectangle()
+                                            .fill(Color.secondary.opacity(0.2))
+                                            .frame(width: 1, height: 28)
+
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(next.effortLevel.rawValue)
+                                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                            Text("effort")
+                                                .font(Font.stride.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
                                 }
-                            } else {
-                                HStack(spacing: .strideLG) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(formatDuration(next.targetDurationMinutes))
-                                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                                        Text("duration")
-                                            .font(Font.stride.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
 
-                                    Rectangle()
-                                        .fill(Color.secondary.opacity(0.2))
-                                        .frame(width: 1, height: 28)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(next.effortLevel.rawValue)
-                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                        Text("effort")
-                                            .font(Font.stride.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
+                                Text("Tap to preview →")
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.tertiary)
                             }
-
-                            Text("Tap to preview →")
-                                .font(Font.stride.caption)
-                                .foregroundStyle(.tertiary)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         } else {
@@ -547,22 +608,119 @@ struct TodayWorkoutCard: View {
 
 struct RestDayCard: View {
     let message: String
+    var nextWorkout: WorkoutDay? = nil
+    var units: UnitSystem = .miles
+    var onTapNext: (() -> Void)? = nil
 
     var body: some View {
-        HeroGlassCard(tint: Color(.systemGray4)) {
-            HStack {
-                VStack(alignment: .leading, spacing: .strideSM) {
-                    Label("REST DAY", systemImage: "moon.fill")
-                        .font(Font.stride.label)
-                        .foregroundStyle(.secondary)
-                        .tracking(1.0)
-                    Text(message)
-                        .font(Font.stride.bodyLarge)
-                        .foregroundStyle(.primary)
+        HeroGlassCard(tint: nextWorkout?.workoutType.accentColor ?? Color(.systemGray4)) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    VStack(alignment: .leading, spacing: .strideSM) {
+                        Label("REST DAY", systemImage: "moon.fill")
+                            .font(Font.stride.label)
+                            .foregroundStyle(.secondary)
+                            .tracking(1.0)
+                        Text(message)
+                            .font(Font.stride.bodyLarge)
+                            .foregroundStyle(.primary)
+                    }
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Color.stride.mint)
                 }
-                Spacer()
+
+                if let next = nextWorkout {
+                    // Divider
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 1)
+                        .padding(.vertical, .strideSM)
+
+                    // Up next preview
+                    Button(action: { onTapNext?() }) {
+                        VStack(alignment: .leading, spacing: .strideSM) {
+                            HStack {
+                                Label("UP NEXT — \(nextDayLabel(next))", systemImage: "arrow.right.circle.fill")
+                                    .font(Font.stride.label)
+                                    .foregroundStyle(next.workoutType.accentColor)
+                                    .tracking(1.0)
+                                Spacer()
+                                WorkoutTypeBadge(type: next.workoutType)
+                            }
+
+                            Text(next.workoutTitle)
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if next.workoutType.isRun {
+                                HStack(spacing: .strideLG) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(formatDistance(next.targetDistanceMiles, units: units))
+                                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                                        Text(units.shortLabel)
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.2))
+                                        .frame(width: 1, height: 28)
+
+                                    if let pace = next.targetPaceSecPerMile {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(pace.formattedPace(unit: units))
+                                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                            Text("target pace")
+                                                .font(Font.stride.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+
+                                        Rectangle()
+                                            .fill(Color.secondary.opacity(0.2))
+                                            .frame(width: 1, height: 28)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(next.effortLevel.rawValue)
+                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        Text("effort")
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+
+                            Text("Tap to preview →")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+    }
+
+    private func nextDayLabel(_ workout: WorkoutDay) -> String {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: DateProvider.shared.now)
+        let target = cal.startOfDay(for: workout.effectiveDate)
+        let diff = cal.dateComponents([.day], from: today, to: target).day ?? 0
+        switch diff {
+        case 1: return "TOMORROW"
+        case 2...6:
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE"
+            return formatter.string(from: workout.effectiveDate).uppercased()
+        default: return workout.effectiveDate.formatted(.dateTime.month(.abbreviated).day())
+        }
+    }
+
+    private func formatDistance(_ miles: Double, units: UnitSystem) -> String {
+        String(format: "%.1f", units.convert(miles))
     }
 }
 
@@ -605,32 +763,30 @@ struct WeeklyProgressCard: View {
     }
 }
 
-// MARK: - Streak Badge
+// MARK: - Weekly Consistency Card
 
-struct StreakBadgeView: View {
-    let streak: Int
-    var isRestDay: Bool = false
+struct WeeklyConsistencyCard: View {
+    let completed: Int
+    let planned: Int
+
+    private var fraction: Double {
+        guard planned > 0 else { return 0 }
+        return Double(completed) / Double(planned)
+    }
 
     var body: some View {
         GlassCard(cornerRadius: .strideRadiusLG) {
             VStack(spacing: 4) {
-                Image(systemName: "flame.fill")
+                Image(systemName: fraction >= 1.0 ? "checkmark.seal.fill" : "figure.run")
                     .font(.system(size: 28))
-                    .foregroundStyle(streak > 0 ? Color.orange : Color(.systemGray3))
+                    .foregroundStyle(fraction >= 1.0 ? Color.stride.mint : Color.stride.lavenderDeep)
 
-                Text("\(streak)")
+                Text("\(completed)/\(planned)")
                     .font(.system(size: 32, weight: .bold, design: .rounded))
 
-                Text("day streak")
+                Text("this week")
                     .font(Font.stride.caption)
                     .foregroundStyle(.secondary)
-
-                if isRestDay && streak > 0 {
-                    Text("rest days count too")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Color.stride.lavenderDeep.opacity(0.7))
-                        .padding(.top, 1)
-                }
             }
             .frame(maxWidth: .infinity)
         }
@@ -729,5 +885,68 @@ struct WorkoutTypeBadge: View {
                         .strokeBorder(type.accentColor.opacity(0.4), lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - HealthKit Run Banner
+
+struct HealthKitRunBanner: View {
+    let hkRun: HealthKitWorkoutData
+    let units: UnitSystem
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            GlassCard {
+                HStack(spacing: .strideSM) {
+                    // Apple Health icon
+                    ZStack {
+                        Circle()
+                            .fill(Color.stride.mint.opacity(0.2))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Color.stride.mint)
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Run Detected")
+                            .font(Font.stride.headingSmall)
+
+                        HStack(spacing: .strideSM) {
+                            Text(String(format: "%.1f %@", units.convert(hkRun.distanceMiles), units.shortLabel))
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+
+                            Text(formatDuration(hkRun.durationSeconds))
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    Text("Log")
+                        .font(Font.stride.bodyMedium.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule().fill(Color.stride.lavenderDeep)
+                        )
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func formatDuration(_ seconds: Int) -> String {
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
     }
 }

@@ -68,7 +68,7 @@ final class ReadyCheckViewModel {
     // MARK: - Accept Recommendation
 
     func accept() {
-        guard let result else { return }
+        guard result != nil else { return }
         persistCheck(accepted: true)
     }
 
@@ -137,7 +137,7 @@ final class ReadyCheckViewModel {
         ) ?? now
         let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
         return plan.workoutDays
-            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun && !$0.isSkipped }
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun }
             .map { $0.targetDistanceMiles }
             .reduce(0, +)
     }

@@ -16,8 +16,6 @@ struct FitnessAnalysis {
     /// Human-readable summary of how the fitness level was derived.
     var fitnessExplanation: String {
         let weeklyKm = averageWeeklyMiles * 1.60934
-        let paceMin = estimatedZone2PaceSecPerMile / 60
-        let paceSec = estimatedZone2PaceSecPerMile % 60
         let pacePerKm = Double(estimatedZone2PaceSecPerMile) / 1.60934
         let kmMin = Int(pacePerKm) / 60
         let kmSec = Int(pacePerKm) % 60
@@ -172,13 +170,7 @@ struct RunningFitnessAnalyzer {
             }
         }
 
-        let avgDistance = totalDistance.compactMapValues { total -> Double? in
-            guard let count = dayCounts.first(where: { $0.key.rawValue == totalDistance.first(where: { $0.value == total })?.key.rawValue })?.value,
-                  count > 0 else { return nil }
-            return nil
-        }
-
-        // Simpler approach: compute average distance per day
+        // Compute average distance per day
         var averages: [(Weekday, Double)] = []
         for (day, total) in totalDistance {
             let count = dayCounts[day] ?? 1

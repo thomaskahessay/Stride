@@ -240,11 +240,11 @@ struct TrainingCalendarView: View {
                         Text(day.workoutType.rawValue)
                             .font(Font.stride.bodyMedium)
 
-                        if day.isCompleted, let log = day.log {
+                        if day.isCompleted, let log = day.log, log.actualDistanceMiles > 0 {
                             Text(log.actualDistanceMiles.formattedDistance(unit: profile.unitPreference))
                                 .font(Font.stride.caption)
                                 .foregroundStyle(.secondary)
-                        } else {
+                        } else if !day.isCompleted {
                             let parts = [
                                 day.targetDistanceMiles > 0 ? day.targetDistanceMiles.formattedDistance(unit: profile.unitPreference) : nil,
                                 day.targetDurationMinutes > 0 ? "\(day.targetDurationMinutes):00" : nil
@@ -284,7 +284,7 @@ struct TrainingCalendarView: View {
                 Divider().frame(height: 32)
                 summaryItem(value: "\(stats.runCount)", label: "Runs")
                 Divider().frame(height: 32)
-                summaryItem(value: "\(stats.streak) day", label: "Streak")
+                summaryItem(value: "\(stats.completed)/\(stats.planned)", label: "This Week")
             }
         }
     }
@@ -300,10 +300,10 @@ struct TrainingCalendarView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var currentWeekStats: (distance: Double, runCount: Int, streak: Int) {
+    private var currentWeekStats: (distance: Double, runCount: Int, completed: Int, planned: Int) {
         let now = DateProvider.shared.now
         guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else {
-            return (0, 0, 0)
+            return (0, 0, 0, 0)
         }
 
         let planWorkouts = (profile.activePlan?.workoutDays ?? [])
@@ -314,46 +314,11 @@ struct TrainingCalendarView: View {
             .filter { $0.date >= weekInterval.start && $0.date < weekInterval.end }
         let hkDist = weekRuns.reduce(0.0) { $0 + $1.distanceMiles }
 
-        let streak = calculateStreak()
+        let allWeekWorkouts = (profile.activePlan?.workoutDays ?? [])
+            .filter { $0.effectiveDate >= weekInterval.start && $0.effectiveDate < weekInterval.end && $0.workoutType != .restDay }
+        let completed = allWeekWorkouts.filter { $0.isCompleted }.count
 
-        return (planDist + hkDist, planWorkouts.count + weekRuns.count, streak)
-    }
-
-    private func calculateStreak() -> Int {
-        guard let plan = profile.activePlan else { return 0 }
-        let cal = Calendar.current
-        let now = DateProvider.shared.now
-        var streak = 0
-        var hasCompletedAny = false
-        var checkDate = cal.startOfDay(for: now)
-
-        while true {
-            let day = plan.workoutDays.first {
-                cal.isDate($0.effectiveDate, inSameDayAs: checkDate)
-            }
-
-            guard let day else { break }
-
-            let isToday = cal.isDate(checkDate, inSameDayAs: now)
-
-            if day.workoutType == .restDay || day.workoutType == .strengthDay {
-                if hasCompletedAny { streak += 1 }
-            } else if day.isCompleted {
-                hasCompletedAny = true
-                streak += 1
-            } else if isToday {
-                // Today's workout isn't done yet — don't break, don't count
-            } else if day.isPast && day.workoutType.isHard {
-                break
-            } else if day.isPast {
-                if hasCompletedAny { streak += 1 }
-            }
-
-            guard let prev = cal.date(byAdding: .day, value: -1, to: checkDate) else { break }
-            checkDate = prev
-        }
-
-        return streak
+        return (planDist + hkDist, planWorkouts.count + weekRuns.count, completed, allWeekWorkouts.count)
     }
 
     // MARK: - Recent Runs Section
@@ -419,15 +384,15 @@ struct TrainingCalendarView: View {
 
     // MARK: - Data Helpers
 
-    /// For past dates, only returns the WorkoutDay if it has been completed (has a log).
-    /// For today and future dates, returns any planned WorkoutDay regardless of completion.
-    /// This prevents unlogged past plan days (generated retroactively) from showing as "missed".
+    /// Returns the planned WorkoutDay for a date, hiding days before the plan was generated
+    /// (those were created retroactively and the user never trained them in-app).
     private func plannedWorkout(for date: Date) -> WorkoutDay? {
-        let isPast = date < calendar.startOfDay(for: DateProvider.shared.now)
-        guard let day = profile.activePlan?.workoutDays.first(where: {
+        guard let plan = profile.activePlan else { return nil }
+        let planCreated = calendar.startOfDay(for: plan.generatedAt)
+        guard date >= planCreated else { return nil }
+        return plan.workoutDays.first {
             calendar.isDate($0.effectiveDate, inSameDayAs: date)
-        }) else { return nil }
-        return isPast ? (day.isCompleted ? day : nil) : day
+        }
     }
 
     private func historicalRun(for date: Date) -> HistoricalRun? {
@@ -507,9 +472,9 @@ private struct CalendarDayCell: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.stride.mint)
             } else if day.isSkipped {
-                Circle()
-                    .fill(Color(.systemGray3))
-                    .frame(width: 6, height: 6)
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color(.systemGray3))
             } else {
                 Circle()
                     .fill(day.workoutType.accentColor)
@@ -778,7 +743,7 @@ private struct RecentWorkoutCard: View {
 
     private var distanceText: String {
         guard day.workoutType != .restDay else { return "" }
-        if let log = day.log {
+        if let log = day.log, log.actualDistanceMiles > 0 {
             return log.actualDistanceMiles.formattedDistance(unit: units)
         }
         return day.targetDistanceMiles > 0

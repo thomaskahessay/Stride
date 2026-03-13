@@ -149,12 +149,10 @@ struct ContentView: View {
             from: cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
         ) ?? now
         let weekEnd = cal.date(byAdding: .day, value: 7, to: weekStart) ?? now
-        let units = profile.unitPreference
-        let totalInDisplayUnits = plan.workoutDays
-            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun && !$0.isSkipped }
-            .map { (units.convert($0.targetDistanceMiles) * 10).rounded() / 10 }
+        return plan.workoutDays
+            .filter { $0.effectiveDate >= weekStart && $0.effectiveDate < weekEnd && $0.workoutType.isRun }
+            .map { $0.targetDistanceMiles }
             .reduce(0, +)
-        return units == .miles ? totalInDisplayUnits : totalInDisplayUnits / 1.60934
     }
 }
 

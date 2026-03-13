@@ -105,9 +105,10 @@ struct StatsView: View {
                     .font(Font.stride.headingSmall)
                     .foregroundStyle(Color.stride.lavenderDeep)
 
-                if let projection = resolvedProjection {
+                if let projection = computedCumulativeProjection {
+                    // Main projected time
                     HStack(alignment: .firstTextBaseline, spacing: .strideXS) {
-                        Text(estimator.formatted(seconds: projection.seconds))
+                        Text(estimator.formatted(seconds: projection.projectedSeconds))
                             .font(.system(size: 40, weight: .bold, design: .rounded))
                             .foregroundStyle(Color.stride.lavenderDeep)
 
@@ -116,14 +117,30 @@ struct StatsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Text(projection.sourceLabel)
-                        .font(Font.stride.caption)
-                        .foregroundStyle(.secondary)
+                    // Range (optimistic — pessimistic)
+                    if projection.optimisticSeconds != projection.pessimisticSeconds {
+                        Text("\(estimator.formatted(seconds: projection.optimisticSeconds)) – \(estimator.formatted(seconds: projection.pessimisticSeconds))")
+                            .font(Font.stride.bodyMedium)
+                            .foregroundStyle(.secondary)
+                    }
 
-                    Text(projection.caveat)
-                        .font(Font.stride.caption)
-                        .foregroundStyle(.tertiary)
-                        .italic()
+                    // Confidence badge + run count
+                    HStack(spacing: .strideSM) {
+                        confidenceBadge(projection.confidence)
+
+                        Text("Based on \(projection.qualifyingRunCount) qualifying run\(projection.qualifyingRunCount == 1 ? "" : "s")")
+                            .font(Font.stride.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    // Trend chart
+                    if projection.weeklyTrend.count >= 2 {
+                        ProjectionTrendChart(
+                            trend: projection.weeklyTrend,
+                            formatter: { estimator.formatted(seconds: $0) }
+                        )
+                        .padding(.top, .strideXS)
+                    }
 
                     Button(profile.recentRaceTime != nil ? "Update Time Trial" : "Add a Race Time for Better Accuracy") {
                         showAddTimeTrial = true
@@ -131,15 +148,38 @@ struct StatsView: View {
                     .font(Font.stride.caption.weight(.semibold))
                     .foregroundStyle(Color.stride.lavenderDeep)
                 } else {
-                    Text("No time trial entered yet.")
+                    Text("Not enough run data yet.")
                         .font(Font.stride.bodyMedium)
                         .foregroundStyle(.secondary)
+
+                    Text("Log a few runs or add a race time to see your projected finish.")
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.tertiary)
 
                     Button("Add a Recent Race Time") { showAddTimeTrial = true }
                         .buttonStyle(StrideSecondaryButtonStyle())
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Confidence Badge
+
+    private func confidenceBadge(_ confidence: ProjectionConfidence) -> some View {
+        Text(confidence.rawValue)
+            .font(Font.stride.label)
+            .padding(.horizontal, .strideSM)
+            .padding(.vertical, .strideXS)
+            .background(Capsule().fill(confidenceColor(confidence).opacity(0.15)))
+            .foregroundStyle(confidenceColor(confidence))
+    }
+
+    private func confidenceColor(_ confidence: ProjectionConfidence) -> Color {
+        switch confidence {
+        case .early:    return Color.stride.warmOrange
+        case .building: return Color.stride.sky
+        case .strong:   return Color.stride.mint
         }
     }
 
@@ -416,61 +456,22 @@ struct StatsView: View {
         }
     }
 
-    /// Resolved projection with source label and caveat text.
-    private struct ResolvedProjection {
-        let seconds: Int
-        let sourceLabel: String
-        let caveat: String
-    }
-
-    /// Tiered projection:
-    /// 1. User-entered time trial (most accurate)
-    /// 2. Race-distance match from HealthKit (accurate)
-    /// 3. Longest run fallback (rough estimate)
-    private var resolvedProjection: ResolvedProjection? {
-        let targetRace = profile.raceType
-
-        // Tier 1: User-entered time trial
-        if let manual = profile.recentRaceTime,
-           let projected = estimator.projectedTime(from: manual, for: targetRace) {
-            return ResolvedProjection(
-                seconds: projected,
-                sourceLabel: estimator.sourceLabel(for: manual),
-                caveat: "This estimate improves as you train."
-            )
+    /// Cumulative projection blending all training data + optional manual race time.
+    private var computedCumulativeProjection: CumulativeProjection? {
+        let planRuns: [QualifyingRun]
+        if let workoutDays = profile.activePlan?.workoutDays {
+            planRuns = FinishTimeEstimator.qualifyingRuns(from: workoutDays)
+        } else {
+            planRuns = []
         }
+        let histRuns = FinishTimeEstimator.qualifyingRuns(from: historicalRuns)
 
-        // Tier 2 & 3: Historical data
-        guard let estimate = estimator.bestHistoricalEstimate(from: historicalRuns) else {
-            return nil
-        }
-
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-
-        switch estimate {
-        case .raceMatch(let raceTime):
-            guard let projected = estimator.projectedTime(from: raceTime, for: targetRace) else { return nil }
-            return ResolvedProjection(
-                seconds: projected,
-                sourceLabel: "Based on your \(raceTime.raceDistance.displayName) on \(formatter.string(from: raceTime.raceDate)) (from Apple Health)",
-                caveat: "This estimate improves as you train."
-            )
-
-        case .longestRun(let distanceMiles, let durationSeconds, let date):
-            guard let projected = estimator.projectedTime(
-                fromDistanceMiles: distanceMiles,
-                durationSeconds: durationSeconds,
-                for: targetRace
-            ) else { return nil }
-            let distLabel = String(format: "%.1f mi", distanceMiles)
-            return ResolvedProjection(
-                seconds: projected,
-                sourceLabel: "Based on your \(distLabel) run on \(formatter.string(from: date)) (from Apple Health)",
-                caveat: "Rough estimate from your longest run — add a race time for better accuracy."
-            )
-        }
+        return estimator.cumulativeProjection(
+            planLogs: planRuns,
+            historicalRuns: histRuns,
+            manualRaceTime: profile.recentRaceTime,
+            targetRace: profile.raceType
+        )
     }
 
     private var daysToRace: Int {
@@ -607,6 +608,117 @@ struct AddTimeTrialView: View {
             .frame(width: 60, height: 80)
             .clipped()
             Text(label).font(Font.stride.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Projection Trend Chart
+
+/// A small sparkline showing how the projected finish time has changed week over week.
+private struct ProjectionTrendChart: View {
+    let trend: [WeeklyProjection]
+    let formatter: (Int) -> String
+
+    private let chartHeight: CGFloat = 80
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: .strideXS) {
+            Text("Projection Trend")
+                .font(Font.stride.caption)
+                .foregroundStyle(.secondary)
+
+            GeometryReader { geo in
+                let width = geo.size.width
+                let points = chartPoints(in: CGSize(width: width, height: chartHeight))
+
+                ZStack(alignment: .topLeading) {
+                    // Gradient fill below the line
+                    Path { path in
+                        guard let first = points.first else { return }
+                        path.move(to: CGPoint(x: first.x, y: chartHeight))
+                        path.addLine(to: first)
+                        for point in points.dropFirst() {
+                            path.addLine(to: point)
+                        }
+                        if let last = points.last {
+                            path.addLine(to: CGPoint(x: last.x, y: chartHeight))
+                        }
+                        path.closeSubpath()
+                    }
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.stride.lavender.opacity(0.3), Color.stride.lavender.opacity(0.05)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                    // Line
+                    Path { path in
+                        guard let first = points.first else { return }
+                        path.move(to: first)
+                        for point in points.dropFirst() {
+                            path.addLine(to: point)
+                        }
+                    }
+                    .stroke(Color.stride.lavenderDeep, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+
+                    // Data point dots
+                    ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                        Circle()
+                            .fill(Color.stride.lavenderDeep)
+                            .frame(width: 6, height: 6)
+                            .position(point)
+                    }
+
+                    // Latest value label
+                    if let last = points.last, let lastTrend = trend.last {
+                        Text(formatter(lastTrend.projectedSeconds))
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                            .position(x: last.x, y: max(12, last.y - 14))
+                    }
+                }
+            }
+            .frame(height: chartHeight)
+
+            // X-axis labels (first and last week)
+            if let first = trend.first, let last = trend.last, trend.count >= 2 {
+                HStack {
+                    Text(first.weekStart.formatted(.dateTime.month(.abbreviated).day()))
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Text(last.weekStart.formatted(.dateTime.month(.abbreviated).day()))
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    /// Map trend data to CGPoints within the given size.
+    /// Y-axis is inverted: lower seconds (faster) = higher on chart.
+    private func chartPoints(in size: CGSize) -> [CGPoint] {
+        guard trend.count >= 2 else {
+            if let single = trend.first {
+                return [CGPoint(x: size.width / 2, y: size.height / 2)]
+            }
+            return []
+        }
+
+        let seconds = trend.map { $0.projectedSeconds }
+        let minSec = Double(seconds.min() ?? 0)
+        let maxSec = Double(seconds.max() ?? 1)
+        let range = max(1, maxSec - minSec)
+        let padding = range * 0.1  // 10% vertical padding
+
+        return trend.enumerated().map { index, week in
+            let x = size.width * CGFloat(index) / CGFloat(trend.count - 1)
+            // Invert Y so faster (lower seconds) is higher
+            let normalised = (Double(week.projectedSeconds) - (minSec - padding)) / (range + 2 * padding)
+            let y = size.height * CGFloat(normalised)
+            return CGPoint(x: x, y: y)
         }
     }
 }

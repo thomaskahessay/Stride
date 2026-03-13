@@ -285,6 +285,20 @@ final class TrainingPlanGenerator {
             )
 
             // Build each day using the pre-determined slot assignments
+            // Determine quality session type for this week (needed for long run variant selection)
+            let intervalFrequency: Int = (profile.raceType == .fiveK || profile.raceType == .tenK) ? 2 : 3
+            let weekHasIntervals = qualityWeekday != nil && week % intervalFrequency == 0
+            let isRecoveryWeek = week % 4 == 0
+
+            // Pick long run variant based on phase, week context, and quality session
+            let longRunVariant = self.longRunVariant(
+                week: week,
+                phase: phase,
+                isRecoveryWeek: isRecoveryWeek,
+                hasIntervalSession: weekHasIntervals,
+                raceType: profile.raceType
+            )
+
             for (date, weekday) in weekDays {
                 let workoutDay: WorkoutDay
 
@@ -296,14 +310,11 @@ final class TrainingPlanGenerator {
                     workoutDay = makeLongRunDay(
                         date: date, weekNumber: week, weekday: weekday,
                         distance: longRunDist, profile: profile,
-                        phase: phase, paceZones: paceZones
+                        phase: phase, paceZones: paceZones,
+                        variant: longRunVariant
                     )
                 } else if weekday == qualityWeekday {
-                    // Tempo-biased quality distribution:
-                    // - Short races (5K/10K): intervals every 2nd week (speed matters more)
-                    // - Long races (HM/FM): intervals every 3rd week (threshold matters more)
-                    let intervalFrequency: Int = (profile.raceType == .fiveK || profile.raceType == .tenK) ? 2 : 3
-                    workoutDay = week % intervalFrequency == 0
+                    workoutDay = weekHasIntervals
                         ? makeIntervalDay(date: date, weekNumber: week, weekday: weekday,
                                           distance: workoutDist, profile: profile, paceZones: paceZones)
                         : makeTempoDay(date: date, weekNumber: week, weekday: weekday,
@@ -379,6 +390,43 @@ final class TrainingPlanGenerator {
         }
 
         return result
+    }
+
+    // MARK: - Long Run Variant Selection
+
+    /// Picks the long run variant based on training phase, week context,
+    /// and what quality session is scheduled that week.
+    private func longRunVariant(
+        week: Int,
+        phase: TrainingPhase,
+        isRecoveryWeek: Bool,
+        hasIntervalSession: Bool,
+        raceType: RaceType
+    ) -> LongRunVariant {
+        // Base and taper: always steady
+        guard phase == .build || phase == .peak else { return .steady }
+
+        // Recovery/cutback weeks: always steady (lower stress)
+        if isRecoveryWeek { return .steady }
+
+        if phase == .build {
+            // Build phase: introduce marathon pace every 3rd non-cutback week,
+            // progressive in between. If this week already has intervals,
+            // use progressive (lower CNS load than MP blocks).
+            if hasIntervalSession {
+                return .progressive
+            }
+            // Marathon pace every 3rd week in build
+            return week % 3 == 0 ? .marathonPace : .progressive
+        }
+
+        // Peak phase: race-specific simulation — alternate marathon pace
+        // and fast finish. Interval weeks get fast finish (less sustained
+        // threshold stress when combined with speed work).
+        if hasIntervalSession {
+            return .fastFinish
+        }
+        return week % 2 == 0 ? .marathonPace : .fastFinish
     }
 
     // MARK: - Workout Factories
@@ -463,13 +511,10 @@ final class TrainingPlanGenerator {
         distance: Double,
         profile: UserProfile,
         phase: TrainingPhase,
-        paceZones: PaceZones?
+        paceZones: PaceZones?,
+        variant: LongRunVariant
     ) -> WorkoutDay {
         let duration = estimatedDuration(miles: distance, paceSecPerMile: paceZones?.longRunPaceSecPerMile, fallbackMph: 5.0)
-
-        let coachingNote = phase == .peak
-            ? "This is a peak long run — one of the most important sessions in your plan. Run the first two-thirds easy, then pick up slightly for the final miles. This teaches your body to run strong on tired legs."
-            : "Your long run this week is all about time on feet. Run at a pace where you can chat comfortably. Finish feeling like you had more in the tank."
 
         let units = profile.unitPreference
         let warmupLabel = units == .kilometers ? "Warm-up km" : "Warm-up Mile"
@@ -477,27 +522,16 @@ final class TrainingPlanGenerator {
             ? "First km very easy — let the body wake up"
             : "First mile very easy — let the body wake up"
         let displayDist = String(format: "%.1f", units.convert(distance))
-        let longRunTitle = "\(displayDist) \(units.shortLabel) Long Run"
 
-        // Peak phase: final miles at race pace to simulate race fatigue
-        let finalMilePace = phase == .peak ? paceZones?.racePaceSecPerMile : paceZones?.longRunPaceSecPerMile
-        let finalMileDesc = phase == .peak
-            ? "Final 2 miles at goal race pace — simulate race day on tired legs."
-            : "Keep the effort steady and comfortable. Don't race the final miles."
-
-        let steps: [WorkoutStep] = [
-            WorkoutStep(order: 1, label: warmupLabel, distanceMiles: 1.0,
-                        description: warmupDesc,
-                        targetPaceSecPerMile: paceZones?.easyPaceSecPerMile),
-            WorkoutStep(order: 2, label: "Long Run", distanceMiles: max(distance - 3.0, distance * 0.85),
-                        description: "Settle into your easy aerobic pace. Focus on consistent effort, not pace.",
-                        targetPaceSecPerMile: paceZones?.longRunPaceSecPerMile),
-            WorkoutStep(order: 3, label: "Final Miles", distanceMiles: phase == .peak ? 2.0 : distance * 0.10,
-                        description: finalMileDesc,
-                        targetPaceSecPerMile: finalMilePace),
-            WorkoutStep(order: 4, label: "Cool-down", durationMinutes: 10,
-                        description: "10 minutes walking, then full leg stretching routine — quads, hamstrings, calves, hips")
-        ]
+        let (longRunTitle, coachingNote, steps) = longRunSteps(
+            variant: variant,
+            distance: distance,
+            displayDist: displayDist,
+            units: units,
+            warmupLabel: warmupLabel,
+            warmupDesc: warmupDesc,
+            paceZones: paceZones
+        )
 
         return WorkoutDay(
             date: date,
@@ -507,11 +541,110 @@ final class TrainingPlanGenerator {
             targetDistanceMiles: distance,
             targetDurationMinutes: duration,
             targetPaceSecPerMile: paceZones?.longRunPaceSecPerMile,
-            effortLevel: .easy,
+            effortLevel: variant == .steady ? .easy : .moderate,
             workoutTitle: longRunTitle,
             coachingNote: coachingNote,
             steps: steps
         )
+    }
+
+    private func longRunSteps(
+        variant: LongRunVariant,
+        distance: Double,
+        displayDist: String,
+        units: UnitSystem,
+        warmupLabel: String,
+        warmupDesc: String,
+        paceZones: PaceZones?
+    ) -> (title: String, note: String, steps: [WorkoutStep]) {
+
+        let cooldown = WorkoutStep(
+            order: 99, label: "Cool-down", durationMinutes: 10,
+            description: "10 minutes walking, then full leg stretching routine — quads, hamstrings, calves, hips"
+        )
+
+        switch variant {
+
+        case .steady:
+            let title = "\(displayDist) \(units.shortLabel) Long Run"
+            let note = "Your long run this week is all about time on feet. Run at a pace where you can chat comfortably. Finish feeling like you had more in the tank."
+            let mainDist = max(distance - 1.0, distance * 0.90)
+            let steps = [
+                WorkoutStep(order: 1, label: warmupLabel, distanceMiles: 1.0,
+                            description: warmupDesc,
+                            targetPaceSecPerMile: paceZones?.easyPaceSecPerMile),
+                WorkoutStep(order: 2, label: "Long Run", distanceMiles: mainDist,
+                            description: "Settle into your easy aerobic pace. Focus on consistent effort, not pace.",
+                            targetPaceSecPerMile: paceZones?.longRunPaceSecPerMile),
+                cooldown.withOrder(3)
+            ]
+            return (title, note, steps)
+
+        case .progressive:
+            let title = "\(displayDist) \(units.shortLabel) Progressive Long Run"
+            let note = "Start easy and build pace through each third. The first miles should feel almost too slow. By the final third you'll be running at a moderately hard effort — not racing, but working. This teaches pacing discipline and running strong on tired legs."
+            let runDist = distance - 1.0 // subtract warmup mile
+            let thirdDist = (runDist / 3.0 * 2).rounded() / 2 // round to nearest 0.5
+            let finalThird = runDist - (thirdDist * 2)
+            let steps = [
+                WorkoutStep(order: 1, label: warmupLabel, distanceMiles: 1.0,
+                            description: warmupDesc,
+                            targetPaceSecPerMile: paceZones?.easyPaceSecPerMile),
+                WorkoutStep(order: 2, label: "Easy Third", distanceMiles: thirdDist,
+                            description: "First third at easy conversational pace. Hold back — the work comes later.",
+                            targetPaceSecPerMile: paceZones?.longRunPaceSecPerMile),
+                WorkoutStep(order: 3, label: "Moderate Third", distanceMiles: thirdDist,
+                            description: "Pick up to a moderate effort — still comfortable, but you can feel the pace shift. Breathing is controlled.",
+                            targetPaceSecPerMile: paceZones?.easyPaceSecPerMile),
+                WorkoutStep(order: 4, label: "Strong Third", distanceMiles: finalThird,
+                            description: "Final third at a strong, controlled effort. Not sprinting — think tempo-ish. Finish knowing you could have held it a bit longer.",
+                            targetPaceSecPerMile: paceZones?.tempoPaceSecPerMile),
+                cooldown.withOrder(5)
+            ]
+            return (title, note, steps)
+
+        case .marathonPace:
+            let title = "\(displayDist) \(units.shortLabel) MP Long Run"
+            let note = "This long run has a block of miles at your goal race pace sandwiched between easy running. The easy start warms you into the effort. The race pace block teaches your body what it will feel like on race day. The easy finish lets you recover while still logging miles."
+            let mpMiles = min(max(2.0, (distance * 0.35 * 2).rounded() / 2), distance - 4.0) // 35% of distance, min 2mi, leave room for bookends
+            let easyBefore = ((distance - mpMiles - 1.0) * 0.6 * 2).rounded() / 2 // 60% of remaining goes before
+            let easyAfter = max(1.0, distance - 1.0 - easyBefore - mpMiles)
+            let steps = [
+                WorkoutStep(order: 1, label: warmupLabel, distanceMiles: 1.0,
+                            description: warmupDesc,
+                            targetPaceSecPerMile: paceZones?.easyPaceSecPerMile),
+                WorkoutStep(order: 2, label: "Easy Miles", distanceMiles: easyBefore,
+                            description: "Settle in at easy pace. Let the legs loosen up before the work begins.",
+                            targetPaceSecPerMile: paceZones?.longRunPaceSecPerMile),
+                WorkoutStep(order: 3, label: "Race Pace Block", distanceMiles: mpMiles,
+                            description: "Lock into your goal race pace. Focus on rhythm, breathing, and staying relaxed. This is the centrepiece of the session.",
+                            targetPaceSecPerMile: paceZones?.racePaceSecPerMile),
+                WorkoutStep(order: 4, label: "Easy Finish", distanceMiles: easyAfter,
+                            description: "Back to easy pace. Let the heart rate come down while keeping the legs moving.",
+                            targetPaceSecPerMile: paceZones?.longRunPaceSecPerMile),
+                cooldown.withOrder(5)
+            ]
+            return (title, note, steps)
+
+        case .fastFinish:
+            let title = "\(displayDist) \(units.shortLabel) Fast Finish Long Run"
+            let note = "Run the bulk of this long run easy, then pick up to tempo effort for the final miles. This simulates the mental and physical challenge of pushing hard when fatigued — exactly what race day demands. Don't start the fast finish too early."
+            let fastMiles = min(max(2.0, (distance * 0.20 * 2).rounded() / 2), 4.0) // 20% of distance, 2-4mi
+            let easyMiles = distance - 1.0 - fastMiles
+            let steps = [
+                WorkoutStep(order: 1, label: warmupLabel, distanceMiles: 1.0,
+                            description: warmupDesc,
+                            targetPaceSecPerMile: paceZones?.easyPaceSecPerMile),
+                WorkoutStep(order: 2, label: "Easy Miles", distanceMiles: easyMiles,
+                            description: "The patient part. Run at a comfortable easy pace and save your energy for the finish.",
+                            targetPaceSecPerMile: paceZones?.longRunPaceSecPerMile),
+                WorkoutStep(order: 3, label: "Fast Finish", distanceMiles: fastMiles,
+                            description: "Time to work. Pick up to tempo effort — comfortably hard. You should feel like you're racing the last stretch. Strong and controlled.",
+                            targetPaceSecPerMile: paceZones?.tempoPaceSecPerMile),
+                cooldown.withOrder(4)
+            ]
+            return (title, note, steps)
+        }
     }
 
     private func makeTempoDay(
@@ -819,6 +952,18 @@ final class TrainingPlanGenerator {
 
 enum TrainingPhase {
     case base, build, peak, taper
+}
+
+/// Determines the structure and pace variation of each week's long run.
+enum LongRunVariant {
+    /// All easy pace — aerobic foundation
+    case steady
+    /// Each third progressively faster: easy → moderate → tempo effort
+    case progressive
+    /// Middle miles at goal race pace, bookended by easy miles
+    case marathonPace
+    /// Final 2-3 miles at tempo pace after easy volume
+    case fastFinish
 }
 
 /// Role-based easy run classification.

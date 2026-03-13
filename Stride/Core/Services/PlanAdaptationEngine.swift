@@ -159,19 +159,19 @@ extension PlanAdaptationEngine {
                 && day.isMissed
         }
 
-        guard !missedKeyWorkouts.isEmpty else { return nil }
+        guard let firstMissed = missedKeyWorkouts.first else { return nil }
 
         if missedKeyWorkouts.count >= 2 {
             return CoachRecommendation(
                 id: UUID(),
                 title: "Missed Key Workouts",
                 message: "You missed \(missedKeyWorkouts.count) key workouts this week. If you're dealing with an injury or illness, consider taking a few easy days. Otherwise, just keep going — next week is a fresh start.",
-                missedWorkoutType: missedKeyWorkouts.first!.workoutType,
+                missedWorkoutType: firstMissed.workoutType,
                 severity: .warning
             )
         }
 
-        let missed = missedKeyWorkouts.first!
+        let missed = firstMissed
         let daysSinceMissed = cal.dateComponents([.day], from: missed.effectiveDate, to: today).day ?? 0
 
         if missed.workoutType == .longRun {

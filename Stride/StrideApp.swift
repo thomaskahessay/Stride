@@ -44,8 +44,8 @@ struct AppRootView: View {
         Group {
             if needsOnboarding {
                 OnboardingView()
-            } else {
-                ContentView(profile: profile!)
+            } else if let profile {
+                ContentView(profile: profile)
             }
         }
         .task {

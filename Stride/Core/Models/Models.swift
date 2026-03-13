@@ -377,6 +377,15 @@ struct WorkoutStep: Codable, Identifiable {
     var durationMinutes: Int?
     var description: String
     var targetPaceSecPerMile: Int? = nil
+
+    /// Returns a copy with a different order value — useful for reusing
+    /// shared steps (e.g. cool-down) across different workout variants.
+    func withOrder(_ newOrder: Int) -> WorkoutStep {
+        var copy = self
+        copy.order = newOrder
+        copy.id = UUID()
+        return copy
+    }
 }
 
 struct RecentRunEntry: Codable, Identifiable {

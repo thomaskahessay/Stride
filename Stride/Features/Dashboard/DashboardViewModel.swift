@@ -6,6 +6,7 @@ final class DashboardViewModel {
 
     // MARK: - State
     var todayWorkout: WorkoutDay?
+    var nextWorkout: WorkoutDay?
     var currentWeekDays: [WorkoutDay] = []
     var weeklyCompletedMiles: Double = 0
     var weeklyTargetMiles: Double = 0
@@ -44,6 +45,14 @@ final class DashboardViewModel {
             cal.isDate($0.effectiveDate, inSameDayAs: today)
         }
 
+        // Next workout — find the next non-rest day after today
+        if let tomorrow = cal.date(byAdding: .day, value: 1, to: today) {
+            nextWorkout = plan.workoutDays
+                .filter { $0.effectiveDate >= tomorrow && $0.workoutType != .restDay }
+                .sorted { $0.effectiveDate < $1.effectiveDate }
+                .first
+        }
+
         // Current week days — Sunday to Saturday of the current week.
         // For past days, only include completed workouts — unlogged past plan entries are hidden
         // since the plan was generated retroactively and the user never ran those days in-app.
@@ -71,7 +80,11 @@ final class DashboardViewModel {
         // Plan completion
         planCompletionPercent = plan.completionPercentage
 
-        // Weekly miles — use effectiveDate so moved workouts count in the right week
+        // Weekly miles — use effectiveDate so moved workouts count in the right week.
+        // Each workout's distance is converted to display units and rounded to 1 decimal
+        // BEFORE summing, so the total always matches the per-workout values the user sees.
+        let units = profile.unitPreference
+
         // Completed: only days up to today that have a log
         weeklyCompletedMiles = plan.workoutDays
             .filter { $0.effectiveDate >= weekStart && $0.effectiveDate <= now }
@@ -81,10 +94,12 @@ final class DashboardViewModel {
         let weekEndSat = cal.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
         let planCreated = cal.startOfDay(for: plan.generatedAt)
         let targetStart = max(weekStart, planCreated)
-        weeklyTargetMiles = plan.workoutDays
+        // Round each workout in display units first, then sum, then convert back to miles
+        let targetInDisplayUnits = plan.workoutDays
             .filter { $0.effectiveDate >= targetStart && $0.effectiveDate < weekEndSat && $0.workoutType.isRun && !$0.isSkipped }
-            .map { $0.targetDistanceMiles }
+            .map { (units.convert($0.targetDistanceMiles) * 10).rounded() / 10 }
             .reduce(0, +)
+        weeklyTargetMiles = units == .miles ? targetInDisplayUnits : targetInDisplayUnits / 1.60934
 
         // Streak
         currentStreak = calculateStreak(plan: plan)
@@ -193,6 +208,10 @@ final class DashboardViewModel {
 
     var raceName: String {
         profile.raceType.displayName
+    }
+
+    var todayIsCompleted: Bool {
+        todayWorkout?.isCompleted == true
     }
 
     var isRestDay: Bool {

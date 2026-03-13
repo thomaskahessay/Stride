@@ -72,6 +72,7 @@ struct HeroGlassCard<Content: View>: View {
                         endPoint: .bottomTrailing
                     )
                 )
+                .allowsHitTesting(false)
         )
     }
 }

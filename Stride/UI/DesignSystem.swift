@@ -12,6 +12,7 @@ extension Color {
         static let lavenderGlow   = Color(hex: "#F3ECFA")
 
         // Workout type accents
+        static let violet         = Color(hex: "#9B59B6")
         static let mint           = Color(hex: "#6FCF97")
         static let sage           = Color(hex: "#C8D5B9")
         static let warmOrange     = Color(hex: "#F2994A") // kept for legacy; prefer .sage
@@ -55,7 +56,7 @@ extension WorkoutType {
     var accentColor: Color {
         switch self {
         case .easyRun:      return Color.stride.mint
-        case .longRun:      return Color.stride.lavender
+        case .longRun:      return Color.stride.violet
         case .tempoRun:     return Color.stride.sage
         case .intervalRun:  return Color.stride.coral
         case .recoveryRun:  return Color(hex: "#27AE60")

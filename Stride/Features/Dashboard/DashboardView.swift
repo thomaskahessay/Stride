@@ -47,9 +47,13 @@ struct DashboardView: View {
                         if viewModel.isRestDay {
                             RestDayCard(message: viewModel.motivationalMessage)
                         } else if let workout = viewModel.todayWorkout {
-                            TodayWorkoutCard(workout: workout, units: profile.unitPreference) {
-                                selectedWorkout = workout
-                            }
+                            TodayWorkoutCard(
+                                workout: workout,
+                                nextWorkout: viewModel.todayIsCompleted ? viewModel.nextWorkout : nil,
+                                units: profile.unitPreference,
+                                onTapToday: { selectedWorkout = workout },
+                                onTapNext: { if let next = viewModel.nextWorkout { selectedWorkout = next } }
+                            )
                         }
 
                         // Weekly Progress
@@ -273,122 +277,269 @@ struct WeekStripDayCell: View {
 }
 
 // MARK: - Today Workout Card (prominent)
+// When today's workout is completed and there's a next workout, the card
+// shows a compact completed summary at the top with an "up next" preview below.
 
 struct TodayWorkoutCard: View {
     let workout: WorkoutDay
+    let nextWorkout: WorkoutDay?
     let units: UnitSystem
-    let onTap: () -> Void
+    let onTapToday: () -> Void
+    let onTapNext: () -> Void
+
+    private var isCompleted: Bool { workout.isCompleted }
 
     var body: some View {
-        Button(action: onTap) {
-            HeroGlassCard(tint: workout.workoutType.accentColor) {
-                VStack(alignment: .leading, spacing: .strideSM) {
-                    // Header row
-                    HStack {
-                        Label(workout.workoutType.isRun ? "TODAY'S RUN" : "TODAY'S WORKOUT", systemImage: "calendar")
-                            .font(Font.stride.label)
-                            .foregroundStyle(workout.workoutType.accentColor)
-                            .tracking(1.0)
-                        Spacer()
-                        WorkoutTypeBadge(type: workout.workoutType)
-                    }
+        if isCompleted, let next = nextWorkout {
+            // Combined card: compact completed summary + up next preview
+            HeroGlassCard(tint: next.workoutType.accentColor) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Compact completed summary (tappable)
+                    Button(action: onTapToday) {
+                        HStack(spacing: .strideSM) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(Color.stride.mint)
 
-                    // Title — large and prominent
-                    Text(workout.workoutTitle)
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    // Stats row — big numbers (hidden for non-run workouts like strength)
-                    if workout.workoutType.isRun {
-                        HStack(spacing: .strideLG) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(distanceLabel)
-                                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(workout.workoutTitle)
+                                    .font(Font.stride.bodyMedium.weight(.semibold))
                                     .foregroundStyle(.primary)
-                                Text(units.shortLabel)
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                HStack(spacing: 6) {
+                                    if workout.workoutType.isRun {
+                                        Text("\(formatDistance(workout.targetDistanceMiles)) \(units.shortLabel)")
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text("Done")
+                                        .font(Font.stride.caption.weight(.medium))
+                                        .foregroundStyle(Color.stride.mint)
+                                }
                             }
 
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.2))
-                                .frame(width: 1, height: 32)
+                            Spacer()
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(workout.targetPaceSecPerMile.map { $0.formattedPace(unit: units) } ?? durationLabel)
-                                    .font(.system(size: workout.targetPaceSecPerMile != nil ? 18 : 22, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.primary)
-                                Text(workout.targetPaceSecPerMile != nil ? "target pace" : "duration")
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.2))
-                                .frame(width: 1, height: 32)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(workout.effortLevel.rawValue)
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.primary)
-                                Text("effort")
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    } else {
-                        // Non-run workouts (strength) — show duration + effort only
-                        HStack(spacing: .strideLG) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(durationLabel)
-                                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.primary)
-                                Text("duration")
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.2))
-                                .frame(width: 1, height: 32)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(workout.effortLevel.rawValue)
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.primary)
-                                Text("effort")
-                                    .font(Font.stride.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.tertiary)
                         }
                     }
+                    .buttonStyle(.plain)
 
-                    if workout.isCompleted {
-                        Label("Completed", systemImage: "checkmark.circle.fill")
-                            .font(Font.stride.bodyMedium.weight(.semibold))
-                            .foregroundStyle(Color.stride.mint)
-                            .padding(.top, 2)
-                    } else {
-                        Text("Tap to view details →")
-                            .font(Font.stride.caption)
-                            .foregroundStyle(.tertiary)
-                            .padding(.top, 2)
+                    // Divider
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 1)
+                        .padding(.vertical, .strideSM)
+
+                    // Up next preview (tappable)
+                    Button(action: onTapNext) {
+                        VStack(alignment: .leading, spacing: .strideSM) {
+                            HStack {
+                                Label("UP NEXT — \(nextDayLabel(next))", systemImage: "arrow.right.circle.fill")
+                                    .font(Font.stride.label)
+                                    .foregroundStyle(next.workoutType.accentColor)
+                                    .tracking(1.0)
+                                Spacer()
+                                WorkoutTypeBadge(type: next.workoutType)
+                            }
+
+                            Text(next.workoutTitle)
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            if next.workoutType.isRun {
+                                HStack(spacing: .strideLG) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(formatDistance(next.targetDistanceMiles))
+                                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                                        Text(units.shortLabel)
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.2))
+                                        .frame(width: 1, height: 28)
+
+                                    if let pace = next.targetPaceSecPerMile {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(pace.formattedPace(unit: units))
+                                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                            Text("target pace")
+                                                .font(Font.stride.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+
+                                        Rectangle()
+                                            .fill(Color.secondary.opacity(0.2))
+                                            .frame(width: 1, height: 28)
+                                    }
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(next.effortLevel.rawValue)
+                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        Text("effort")
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            } else {
+                                HStack(spacing: .strideLG) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(formatDuration(next.targetDurationMinutes))
+                                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                                        Text("duration")
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.2))
+                                        .frame(width: 1, height: 28)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(next.effortLevel.rawValue)
+                                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        Text("effort")
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+
+                            Text("Tap to preview →")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else {
+            // Standard today card (not completed, or no next workout)
+            Button(action: onTapToday) {
+                HeroGlassCard(tint: workout.workoutType.accentColor) {
+                    VStack(alignment: .leading, spacing: .strideSM) {
+                        HStack {
+                            Label(workout.workoutType.isRun ? "TODAY'S RUN" : "TODAY'S WORKOUT", systemImage: "calendar")
+                                .font(Font.stride.label)
+                                .foregroundStyle(workout.workoutType.accentColor)
+                                .tracking(1.0)
+                            Spacer()
+                            WorkoutTypeBadge(type: workout.workoutType)
+                        }
+
+                        Text(workout.workoutTitle)
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if workout.workoutType.isRun {
+                            HStack(spacing: .strideLG) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(formatDistance(workout.targetDistanceMiles))
+                                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                    Text(units.shortLabel)
+                                        .font(Font.stride.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.2))
+                                    .frame(width: 1, height: 32)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(workout.targetPaceSecPerMile.map { $0.formattedPace(unit: units) } ?? formatDuration(workout.targetDurationMinutes))
+                                        .font(.system(size: workout.targetPaceSecPerMile != nil ? 18 : 22, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                    Text(workout.targetPaceSecPerMile != nil ? "target pace" : "duration")
+                                        .font(Font.stride.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.2))
+                                    .frame(width: 1, height: 32)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(workout.effortLevel.rawValue)
+                                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                    Text("effort")
+                                        .font(Font.stride.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } else {
+                            HStack(spacing: .strideLG) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(formatDuration(workout.targetDurationMinutes))
+                                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                    Text("duration")
+                                        .font(Font.stride.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.2))
+                                    .frame(width: 1, height: 32)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(workout.effortLevel.rawValue)
+                                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                    Text("effort")
+                                        .font(Font.stride.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        if workout.isCompleted {
+                            Label("Completed", systemImage: "checkmark.circle.fill")
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                                .foregroundStyle(Color.stride.mint)
+                                .padding(.top, 2)
+                        } else {
+                            Text("Tap to view details →")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 2)
+                        }
                     }
                 }
             }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
-    private var distanceLabel: String {
-        String(format: "%.1f", units.convert(workout.targetDistanceMiles))
+    // MARK: - Helpers
+
+    private func formatDistance(_ miles: Double) -> String {
+        String(format: "%.1f", units.convert(miles))
     }
 
-    private var durationLabel: String {
-        let h = workout.targetDurationMinutes / 60
-        let m = workout.targetDurationMinutes % 60
+    private func formatDuration(_ minutes: Int) -> String {
+        let h = minutes / 60
+        let m = minutes % 60
         return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+
+    private func nextDayLabel(_ next: WorkoutDay) -> String {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: DateProvider.shared.now)
+        if let tomorrow = cal.date(byAdding: .day, value: 1, to: today),
+           cal.isDate(next.effectiveDate, inSameDayAs: tomorrow) {
+            return "TOMORROW"
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: next.effectiveDate).uppercased()
     }
 }
 
@@ -434,7 +585,7 @@ struct WeeklyProgressCard: View {
                     Text("This Week")
                         .font(Font.stride.headingSmall)
                     Spacer()
-                    Text("\(String(format: "%.1f", units.convert(completedMiles))) / \(String(format: "%.0f", units.convert(targetMiles))) \(units.shortLabel)")
+                    Text("\(String(format: "%.1f", units.convert(completedMiles))) / \(String(format: "%.1f", units.convert(targetMiles))) \(units.shortLabel)")
                         .font(Font.stride.bodyMedium)
                         .foregroundStyle(.secondary)
                 }

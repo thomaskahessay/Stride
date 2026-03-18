@@ -40,24 +40,36 @@ struct WorkoutDetailView: View {
                         if workout.isAdapted, let note = workout.adaptationNote {
                             adaptationCallout(note: note)
                         }
+
+                        // Future workouts: inline message instead of floating buttons
+                        if viewModel.isFutureWorkout && !workout.isCompleted && workout.workoutType != .restDay {
+                            Text("You can log this workout on the day or after")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                        }
                     }
                     .padding(.strideMD)
-                    .padding(.bottom, 180)
+                    .padding(.bottom, hasFloatingButtons ? 180 : .strideMD)
                 }
 
-                VStack(spacing: 0) {
-                    Spacer()
-                    LinearGradient(
-                        colors: [.clear, Color(.systemBackground).opacity(0.9)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 40)
-                    .allowsHitTesting(false)
-                    bottomActions
-                        .padding(.horizontal, .strideMD)
-                        .padding(.bottom, .strideMD)
-                        .background(Color(.systemBackground).opacity(0.9))
+                // Floating bottom actions (only when there are buttons)
+                if hasFloatingButtons {
+                    VStack(spacing: 0) {
+                        Spacer()
+                        LinearGradient(
+                            colors: [.clear, Color.stride.lavenderLight],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 40)
+                        .allowsHitTesting(false)
+                        bottomActions
+                            .padding(.horizontal, .strideMD)
+                            .padding(.bottom, .strideMD)
+                            .background(Color.stride.lavenderLight)
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -451,6 +463,12 @@ struct WorkoutDetailView: View {
 
     // MARK: - Bottom Actions
 
+    private var hasFloatingButtons: Bool {
+        if workout.isCompleted { return true }
+        if viewModel.isFutureWorkout && workout.workoutType != .restDay { return false }
+        return true
+    }
+
     private var bottomActions: some View {
         VStack(spacing: .strideSM) {
             if workout.isCompleted {
@@ -465,12 +483,6 @@ struct WorkoutDetailView: View {
                 }
                 .font(Font.stride.caption)
                 .foregroundStyle(.red.opacity(0.8))
-            } else if viewModel.isFutureWorkout && workout.workoutType != .restDay {
-                // Future workouts can't be logged yet
-                Text("You can log this workout on the day or after")
-                    .font(Font.stride.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
             } else {
                 if !workout.isSkipped {
                     Button(workout.workoutType == .strengthDay ? "Mark as Complete" : "Log This Workout") {

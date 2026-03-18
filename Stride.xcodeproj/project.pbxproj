@@ -256,10 +256,11 @@
 				DEVELOPMENT_TEAM = D8ZVHTNLK7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Stride reads your running workouts to automatically fill in your training log.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Stride reads your running workouts to track your training progress and pre-fill workout logs.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Stride does not write health data, but requires this permission for HealthKit integration.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				"INFOPLIST_KEY_UILaunchScreen_BackgroundColor" = LaunchBackground;
+				INFOPLIST_KEY_UILaunchScreen_BackgroundColor = LaunchBackground;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
@@ -292,10 +293,11 @@
 				DEVELOPMENT_TEAM = D8ZVHTNLK7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Stride reads your running workouts to automatically fill in your training log.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Stride reads your running workouts to track your training progress and pre-fill workout logs.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Stride does not write health data, but requires this permission for HealthKit integration.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				"INFOPLIST_KEY_UILaunchScreen_BackgroundColor" = LaunchBackground;
+				INFOPLIST_KEY_UILaunchScreen_BackgroundColor = LaunchBackground;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;

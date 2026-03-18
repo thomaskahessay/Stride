@@ -658,7 +658,9 @@ final class WorkoutDay {
     }
 
     var isFuture: Bool {
-        effectiveDate > Calendar.current.startOfDay(for: DateProvider.shared.now)
+        let cal = Calendar.current
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: DateProvider.shared.now)) ?? DateProvider.shared.now
+        return effectiveDate >= tomorrow
     }
 
     var isMissed: Bool {

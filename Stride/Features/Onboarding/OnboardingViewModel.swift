@@ -329,6 +329,7 @@ final class OnboardingViewModel {
         profile.onboardingComplete = true
         modelContext.insert(profile)
         try? modelContext.save()
+        await NotificationManager.shared.requestAuthorisation()
         NotificationManager.shared.scheduleAll(for: profile)
 
         // Persist historical runs if we have them

@@ -1,9 +1,11 @@
 import SwiftUI
 import SwiftData
+import UserNotifications
 
 @main
 struct StrideApp: App {
 
+    @UIApplicationDelegateAdaptor(StrideAppDelegate.self) var appDelegate
     let container: ModelContainer
 
     init() {
@@ -49,9 +51,10 @@ struct AppRootView: View {
             }
         }
         .task {
-            // Request HealthKit auth after onboarding completes
             if !needsOnboarding {
                 await HealthKitManager.shared.requestAuthorisation()
+                await NotificationManager.shared.requestAuthorisation()
+                refreshNotifications()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
@@ -66,5 +69,25 @@ struct AppRootView: View {
     private func refreshNotifications() {
         guard let profile = profile, profile.onboardingComplete else { return }
         NotificationManager.shared.scheduleAll(for: profile)
+    }
+}
+
+// MARK: - App Delegate (Notification Delegate)
+
+class StrideAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    // Show notifications even when app is in the foreground
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
     }
 }

@@ -7,6 +7,7 @@ final class NotificationManager {
 
     // MARK: - Permission
 
+    @discardableResult
     func requestAuthorisation() async -> Bool {
         do {
             return try await UNUserNotificationCenter.current()

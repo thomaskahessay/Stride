@@ -19,16 +19,17 @@ struct WorkoutDetailView: View {
                     VStack(alignment: .leading, spacing: .strideMD) {
                         headerCard
 
-                        if workout.workoutType.isRun {
+                        if workout.isCompleted, let log = workout.log {
+                            // Completed: actual stats as hero, then planned below
+                            actualStatsRow(log: log)
+                            plannedStatsSection
+                        } else if workout.workoutType.isRun {
+                            // Not completed: planned stats as hero
                             statsRow
                         }
 
                         if let check = viewModel.readinessCheck(context: modelContext) {
                             readinessScoreCard(check: check)
-                        }
-
-                        if workout.isCompleted, let log = workout.log {
-                            actualStatsSection(log: log)
                         }
 
                         if workout.workoutType != .restDay && !workout.steps.isEmpty {
@@ -114,11 +115,25 @@ struct WorkoutDetailView: View {
     // MARK: - Header Card
 
     private var headerCard: some View {
-        HeroGlassCard(tint: workout.workoutType.accentColor) {
-            VStack(alignment: .leading, spacing: .strideSM) {
-                WorkoutTypeBadge(type: workout.workoutType)
+        let displayType: WorkoutType = {
+            if workout.isCompleted, let log = workout.log, let actual = log.actualWorkoutType {
+                return actual
+            }
+            return workout.workoutType
+        }()
 
-                Text(workout.workoutTitle)
+        let displayTitle: String = {
+            if workout.isCompleted, let log = workout.log, let actual = log.actualWorkoutType, actual != workout.workoutType {
+                return actual.rawValue
+            }
+            return workout.workoutTitle
+        }()
+
+        return HeroGlassCard(tint: displayType.accentColor) {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                WorkoutTypeBadge(type: displayType)
+
+                Text(displayTitle)
                     .font(Font.stride.displayMedium)
 
                 Text(workout.effectiveDate.formatted(date: .complete, time: .omitted))
@@ -240,110 +255,142 @@ struct WorkoutDetailView: View {
         }
     }
 
-    // MARK: - Actual Stats (post-run)
+    // MARK: - Actual Stats Row (hero pills for completed workouts)
 
-    private func actualStatsSection(log: WorkoutLog) -> some View {
-        let showRunStats = workout.workoutType.isRun || log.strengthCompleted
+    private func actualStatsRow(log: WorkoutLog) -> some View {
+        let showRunStats = workout.workoutType.isRun || log.actualDistanceMiles > 0
 
-        return GlassCard {
-            VStack(alignment: .leading, spacing: .strideSM) {
-                Label(
-                    workout.workoutType == .strengthDay && !log.strengthCompleted
-                        ? "Completed"
-                        : "What You Did",
-                    systemImage: workout.workoutType == .strengthDay && !log.strengthCompleted
-                        ? "checkmark.circle.fill"
-                        : "figure.run.circle.fill"
-                )
-                    .font(Font.stride.headingSmall)
-                    .foregroundStyle(Color.stride.mint)
-
-                if let actualType = log.actualWorkoutType, actualType != workout.workoutType {
-                    HStack(spacing: 6) {
-                        Image(systemName: actualType.sfSymbol)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(actualType.accentColor)
-                        Text("Logged as \(actualType.rawValue)")
-                            .font(Font.stride.bodyMedium.weight(.semibold))
-                            .foregroundStyle(actualType.accentColor)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(actualType.accentFill)
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(actualType.accentColor.opacity(0.4), lineWidth: 1)
-                            )
+        return VStack(spacing: .strideMD) {
+            if showRunStats {
+                HStack(spacing: .strideMD) {
+                    StatPill(
+                        icon: "road.lanes",
+                        value: log.actualDistanceMiles.formattedDistance(unit: units),
+                        label: "Distance"
+                    )
+                    StatPill(
+                        icon: "hare",
+                        value: actualPace(log: log),
+                        label: "Avg Pace"
+                    )
+                    StatPill(
+                        icon: "timer",
+                        value: log.formattedDuration,
+                        label: "Duration"
                     )
                 }
+            }
 
-                if log.strengthCompleted {
-                    HStack(spacing: 6) {
-                        Image(systemName: "dumbbell.fill")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.stride.sky)
-                        Text("Strength completed")
-                            .font(Font.stride.bodyMedium.weight(.semibold))
-                            .foregroundStyle(Color.stride.sky)
+            // Additional actual stats card
+            GlassCard {
+                VStack(alignment: .leading, spacing: .strideSM) {
+                    if log.strengthCompleted {
+                        HStack(spacing: 6) {
+                            Image(systemName: "dumbbell.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.stride.sky)
+                            Text("Strength completed")
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                                .foregroundStyle(Color.stride.sky)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(Color.stride.sky.opacity(0.15))
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.stride.sky.opacity(0.4), lineWidth: 1)
+                                )
+                        )
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(Color.stride.sky.opacity(0.15))
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(Color.stride.sky.opacity(0.4), lineWidth: 1)
-                            )
-                    )
-                }
 
-                if showRunStats {
-                    Divider()
-
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .strideSM) {
-                        actualStatCell(
-                            icon: "road.lanes",
-                            label: "Distance",
-                            value: log.actualDistanceMiles.formattedDistance(unit: units)
-                        )
-                        actualStatCell(
-                            icon: "timer",
-                            label: "Duration",
-                            value: log.formattedDuration
-                        )
-                        actualStatCell(
-                            icon: "hare",
-                            label: "Avg Pace",
-                            value: actualPace(log: log)
-                        )
-                        if let hr = log.averageHeartRate {
+                    if showRunStats {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: .strideSM) {
+                            if let hr = log.averageHeartRate {
+                                actualStatCell(
+                                    icon: "heart.fill",
+                                    label: "Avg Heart Rate",
+                                    value: "\(Int(hr)) bpm"
+                                )
+                            }
                             actualStatCell(
-                                icon: "heart.fill",
-                                label: "Avg Heart Rate",
-                                value: "\(Int(hr)) bpm"
+                                icon: "flame.fill",
+                                label: "Effort (RPE)",
+                                value: "\(log.effortRating) / 10"
                             )
                         }
-                        actualStatCell(
-                            icon: "flame.fill",
-                            label: "Effort (RPE)",
-                            value: "\(log.effortRating) / 10"
-                        )
+                    }
+
+                    if !log.notes.isEmpty {
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Notes", systemImage: "text.bubble")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                            Text(log.notes)
+                                .font(Font.stride.bodyMedium)
+                                .lineSpacing(2)
+                        }
                     }
                 }
+            }
+        }
+    }
 
-                if !log.notes.isEmpty {
-                    Divider()
+    // MARK: - Planned Stats Section (shown below actuals for completed workouts)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("Notes", systemImage: "text.bubble")
-                            .font(Font.stride.caption)
-                            .foregroundStyle(.secondary)
-                        Text(log.notes)
-                            .font(Font.stride.bodyMedium)
-                            .lineSpacing(2)
+    private var plannedStatsSection: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("Planned", systemImage: "calendar")
+                    .font(Font.stride.headingSmall)
+                    .foregroundStyle(.secondary)
+
+                if workout.workoutType.isRun {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: .strideSM) {
+                        VStack(spacing: 2) {
+                            Text(String(format: "%.1f", units.convert(workout.targetDistanceMiles)))
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                            Text(units.shortLabel)
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        VStack(spacing: 2) {
+                            Text(workout.targetPaceSecPerMile.map { $0.formattedPace(unit: units) } ?? durationLabel)
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                            Text(workout.targetPaceSecPerMile != nil ? "pace" : "est. time")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        VStack(spacing: 2) {
+                            Text(workout.effortLevel.rawValue)
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                            Text("effort")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    HStack(spacing: .strideLG) {
+                        VStack(spacing: 2) {
+                            Text(durationLabel)
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                            Text("duration")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        VStack(spacing: 2) {
+                            Text(workout.effortLevel.rawValue)
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                            Text("effort")
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

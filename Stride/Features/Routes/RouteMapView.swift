@@ -30,10 +30,12 @@ struct RouteMapView: View {
                         }
                     }
 
-                    // Polyline connecting waypoints
-                    if viewModel.polylineCoordinates.count >= 2 {
-                        MapPolyline(coordinates: viewModel.polylineCoordinates)
-                            .stroke(Color.stride.lavenderDeep, lineWidth: 4)
+                    // Road-snapped polyline segments
+                    ForEach(Array(viewModel.polylineCoordinates.enumerated()), id: \.offset) { _, segment in
+                        if segment.count >= 2 {
+                            MapPolyline(coordinates: segment)
+                                .stroke(Color.stride.lavenderDeep, lineWidth: 4)
+                        }
                     }
                 }
                 .mapStyle(.standard(pointsOfInterest: .excludingAll))
@@ -119,10 +121,32 @@ struct RouteMapView: View {
         VStack(spacing: .strideSM) {
             // Distance display
             if !viewModel.waypoints.isEmpty {
-                Text(viewModel.formattedDistance)
-                    .font(Font.stride.headingMedium)
-                    .foregroundStyle(Color.stride.lavenderDeep)
-                    .contentTransition(.numericText())
+                HStack(spacing: .strideSM) {
+                    Text(viewModel.formattedDistance)
+                        .font(Font.stride.headingMedium)
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                        .contentTransition(.numericText())
+
+                    if viewModel.isLoadingSegment {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(Color.stride.lavenderDeep)
+                    }
+                }
+            }
+
+            // Straight-line fallback notice
+            if viewModel.hasStraightLineFallback {
+                Text("Some segments use straight-line distance")
+                    .font(Font.stride.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Error message
+            if let error = viewModel.routeError {
+                Text(error)
+                    .font(Font.stride.caption)
+                    .foregroundStyle(Color.stride.coral)
             }
 
             HStack(spacing: 12) {

@@ -1,0 +1,162 @@
+import SwiftUI
+import SwiftData
+
+struct SavedRoutesView: View {
+    let unitSystem: UnitSystem
+
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Route.updatedAt, order: .reverse) private var routes: [Route]
+    @State private var viewModel = SavedRoutesViewModel()
+
+    var body: some View {
+        Group {
+            if routes.isEmpty {
+                emptyState
+            } else {
+                routeList
+            }
+        }
+        .navigationTitle("Routes")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    RouteMapView(
+                        locationManager: LocationManager.shared,
+                        unitSystem: unitSystem
+                    )
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                }
+            }
+        }
+        .alert("Delete Route?", isPresented: $viewModel.showDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                if let route = viewModel.routeToDelete {
+                    withAnimation {
+                        viewModel.deleteRoute(route, modelContext: modelContext)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This route will be permanently deleted.")
+        }
+    }
+
+    // MARK: - Route List
+
+    private var routeList: some View {
+        List {
+            ForEach(routes) { route in
+                NavigationLink(value: route) {
+                    routeRow(route)
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(
+                    top: .strideSM / 2,
+                    leading: .strideMD,
+                    bottom: .strideSM / 2,
+                    trailing: .strideMD
+                ))
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        viewModel.confirmDelete(route)
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    Button {
+                        withAnimation {
+                            viewModel.toggleFavorite(route)
+                        }
+                    } label: {
+                        Label(
+                            route.isFavorite ? "Unfavorite" : "Favorite",
+                            systemImage: route.isFavorite ? "star.slash" : "star.fill"
+                        )
+                    }
+                    .tint(Color.stride.lavenderDeep)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(LinearGradient.strideBackground.ignoresSafeArea())
+        .navigationDestination(for: Route.self) { route in
+            RouteDetailView(route: route, unitSystem: unitSystem)
+        }
+    }
+
+    // MARK: - Route Row
+
+    private func routeRow(_ route: Route) -> some View {
+        HStack(spacing: .strideMD) {
+            RouteThumbnail(waypoints: route.waypoints)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(route.name)
+                    .font(Font.stride.bodyLarge.weight(.semibold))
+                    .lineLimit(1)
+
+                HStack(spacing: .strideSM) {
+                    Text(viewModel.formattedDistance(route.distance, unit: unitSystem))
+                        .font(Font.stride.bodyMedium)
+                        .foregroundStyle(.secondary)
+
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+
+                    Text(viewModel.relativeDate(route.createdAt))
+                        .font(Font.stride.bodyMedium)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if route.isFavorite {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.stride.lavenderDeep)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.strideMD)
+        .background(.ultraThinMaterial)
+        .background(LinearGradient.glassOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: .strideRadiusLG, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: .strideRadiusLG, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: .strideMD) {
+            Image(systemName: "map")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.stride.lavenderDeep.opacity(0.5))
+
+            Text("No Saved Routes")
+                .font(Font.stride.headingSmall)
+
+            Text("Create your first route by tapping the + button above.")
+                .font(Font.stride.bodyMedium)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.strideLG)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LinearGradient.strideBackground.ignoresSafeArea())
+    }
+}

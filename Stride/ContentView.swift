@@ -40,10 +40,7 @@ struct ContentView: View {
                     }
 
                 NavigationStack {
-                    RouteMapView(
-                        locationManager: LocationManager.shared,
-                        unitSystem: profile.unitPreference
-                    )
+                    SavedRoutesView(unitSystem: profile.unitPreference)
                 }
                     .tag(Tab.routes)
                     .tabItem {

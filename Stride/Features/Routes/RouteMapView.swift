@@ -3,10 +3,16 @@ import MapKit
 
 struct RouteMapView: View {
     let locationManager: LocationManager
+    var unitSystem: UnitSystem = .kilometers
 
+    @Environment(\.modelContext) private var modelContext
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var hasInitiallyCentered = false
     @State var viewModel = RouteCreationViewModel()
+    @State private var showInfoPanel = false
+    @State private var showSaveConfirmation = false
+
+    private let routeService = RouteService()
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -91,6 +97,24 @@ struct RouteMapView: View {
         .sensoryFeedback(.impact(weight: .light), trigger: viewModel.waypoints.count)
         .navigationTitle("Routes")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showInfoPanel) {
+            RouteInfoPanel(
+                distanceMeters: viewModel.totalDistanceMeters,
+                waypointCount: viewModel.waypoints.count,
+                unitSystem: unitSystem,
+                isLoading: viewModel.isLoadingSegment,
+                onSave: saveRoute
+            )
+            .presentationDetents([.fraction(0.3), .medium])
+            .presentationDragIndicator(.hidden)
+            .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.3)))
+        }
+        .sensoryFeedback(.success, trigger: showSaveConfirmation)
+        .overlay {
+            if showSaveConfirmation {
+                saveConfirmationOverlay
+            }
+        }
     }
 
     // MARK: - Create Route Toggle
@@ -176,6 +200,15 @@ struct RouteMapView: View {
                 ) {
                     withAnimation { viewModel.closeLoop() }
                 }
+
+                // Save / Info
+                controlButton(
+                    icon: "square.and.arrow.down",
+                    label: "Save",
+                    disabled: viewModel.waypoints.count < 2
+                ) {
+                    showInfoPanel = true
+                }
             }
         }
         .padding(.strideMD)
@@ -234,6 +267,55 @@ struct RouteMapView: View {
                 .clipShape(Circle())
                 .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
         }
+    }
+
+    // MARK: - Save Route
+
+    private func saveRoute(name: String) {
+        let coordinates = viewModel.waypoints
+            .sorted { $0.order < $1.order }
+            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+
+        // Estimate duration at ~5:30/km pace
+        let paceSecondsPerMeter = 5.5 * 60.0 / 1000.0
+        let estimatedDuration = viewModel.totalDistanceMeters * paceSecondsPerMeter
+
+        _ = routeService.saveRoute(
+            name: name,
+            waypoints: coordinates,
+            distance: viewModel.totalDistanceMeters,
+            estimatedDuration: estimatedDuration,
+            modelContext: modelContext
+        )
+
+        showInfoPanel = false
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            showSaveConfirmation = true
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation {
+                showSaveConfirmation = false
+                viewModel.stopCreating()
+            }
+        }
+    }
+
+    // MARK: - Save Confirmation Overlay
+
+    private var saveConfirmationOverlay: some View {
+        VStack(spacing: .strideSM) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.stride.mint)
+            Text("Route Saved")
+                .font(Font.stride.headingSmall)
+        }
+        .padding(.strideLG)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: .strideRadiusLG, style: .continuous))
+        .shadow(color: .black.opacity(0.15), radius: 12, x: 0, y: 4)
+        .transition(.scale.combined(with: .opacity))
     }
 
     // MARK: - Location Denied Banner

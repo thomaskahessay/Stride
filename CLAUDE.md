@@ -4,8 +4,7 @@
 Stride is a Swift/SwiftUI iOS running app for training plan management. It generates personalised training plans based on race type, race date, fitness level, and schedule preferences. The primary user is a runner training for a marathon (~90 days out), but the app supports 5K, 10K, Half Marathon, and Full Marathon for all levels.
 
 **Distribution:** TestFlight
-**Deadline:** Friday March 13, 2026
-**Platform:** iOS 18+ (iPhone only, no watchOS in v1)
+**Platform:** iOS 18+ (iPhone only; watchOS is a v2 goal)
 
 ---
 
@@ -15,9 +14,11 @@ Stride is a Swift/SwiftUI iOS running app for training plan management. It gener
 - **State management:** `@Observable` macro (NOT `ObservableObject`)
 - **Persistence:** SwiftData (`@Model` classes)
 - **Health:** HealthKit (read-only, passive post-run sync)
+- **Maps & Location:** MapKit + CoreLocation (route planning, MKDirections for road-snapped routes)
 - **Notifications:** `UserNotifications` framework (local only, no push server)
 - **Xcode:** 16+
-- **No backend, no networking, no third-party dependencies in v1**
+- **No custom backend.** Native Apple API network calls (MapKit, HealthKit, etc.) are fine.
+- **Third-party packages (SPM):** Allowed on a case-by-case basis. Prefer native frameworks when they cover the need. Justify any new dependency before adding it.
 
 ---
 
@@ -56,35 +57,32 @@ Stride/
 ├── Info.plist
 │
 ├── Core/
-│   ├── Models/                      # SwiftData @Model classes
-│   │   ├── UserProfile.swift
-│   │   ├── TrainingPlan.swift
-│   │   ├── WorkoutDay.swift
-│   │   ├── WorkoutLog.swift
-│   │   └── RaceEvent.swift
+│   ├── Models/                      # SwiftData @Model classes + value types
+│   │   ├── Models.swift             # UserProfile, TrainingPlan, WorkoutDay, WorkoutLog,
+│   │   │                            #   HistoricalRun, enums (RaceType, WorkoutType, etc.)
+│   │   ├── ReadinessCheck.swift     # Daily readiness assessment model
+│   │   └── AdaptationRecord.swift   # Plan adaptation history
 │   │
 │   ├── Services/
-│   │   ├── TrainingPlanGenerator.swift   # Plan generation algorithm
-│   │   ├── HealthKitManager.swift        # HealthKit read-only integration
-│   │   ├── NotificationManager.swift     # Local notification scheduling
-│   │   └── FinishTimeEstimator.swift     # Riegel formula projections
+│   │   ├── TrainingPlanGenerator.swift    # Plan generation algorithm
+│   │   ├── HealthKitManager.swift         # HealthKit read-only integration
+│   │   ├── NotificationManager.swift      # Local notification scheduling
+│   │   ├── FinishTimeEstimator.swift      # Riegel formula projections
+│   │   ├── PlanAdaptationEngine.swift     # Adaptive plan adjustments
+│   │   ├── ReadinessEngine.swift          # Daily readiness scoring
+│   │   ├── RunningFitnessAnalyzer.swift   # Fitness analysis
+│   │   ├── HistoricalRunService.swift     # Historical run tracking
+│   │   ├── WorkoutAdjustmentService.swift # Workout modifications
+│   │   └── DateProvider.swift             # Date abstraction (supports time-travel debugging)
 │   │
 │   └── Extensions/
-│       ├── Color+Stride.swift
-│       ├── Date+Training.swift
 │       └── Double+Formatting.swift
 │
 ├── UI/
 │   ├── DesignSystem.swift           # Colors, fonts, gradients — single source of truth
-│   ├── Components/
-│   │   ├── GlassCard.swift          # Reusable glassmorphism card
-│   │   ├── StrideButton.swift       # Primary/secondary button styles
-│   │   ├── WorkoutTypeBadge.swift   # Pill badge (Easy, Tempo, Long, etc.)
-│   │   ├── RPEPicker.swift          # Effort rating (1–10 scale)
-│   │   └── ConfettiView.swift       # Celebration overlay
-│   └── Modifiers/
-│       ├── GlassMorphism.swift
-│       └── StrideCard.swift
+│   └── Components/
+│       ├── GlassCard.swift          # Reusable glassmorphism card
+│       └── StrideButton.swift       # Primary/secondary button styles
 │
 └── Features/
     ├── Onboarding/
@@ -93,23 +91,21 @@ Stride/
     │   └── Steps/
     │       ├── WelcomeStepView.swift
     │       ├── RaceSetupStepView.swift
-    │       ├── FitnessLevelStepView.swift
+    │       ├── FitnessProfileStepView.swift
     │       ├── ScheduleStepView.swift
-    │       ├── CurrentFitnessStepView.swift
-    │       └── PlanPreviewStepView.swift
+    │       ├── HealthSyncStepView.swift
+    │       ├── PlanPreviewStepView.swift
+    │       └── OnboardingComponents.swift
     │
     ├── Dashboard/
     │   ├── DashboardView.swift
     │   ├── DashboardViewModel.swift
     │   └── Components/
-    │       ├── RaceCountdownCard.swift
-    │       ├── TodayWorkoutCard.swift
-    │       ├── WeeklyProgressCard.swift
-    │       └── StreakBadgeView.swift
+    │       ├── AdaptationBannerCard.swift
+    │       └── AdaptationDetailView.swift
     │
     ├── Calendar/
-    │   ├── TrainingCalendarView.swift
-    │   └── TrainingCalendarViewModel.swift
+    │   └── TrainingCalendarView.swift
     │
     ├── Workout/
     │   ├── WorkoutDetailView.swift
@@ -117,15 +113,19 @@ Stride/
     │   └── LogWorkoutView.swift
     │
     ├── Progress/
-    │   ├── ProgressView.swift
-    │   ├── ProgressViewModel.swift
-    │   └── Components/
-    │       ├── WeeklyMileageChart.swift
-    │       └── FinishTimeCard.swift
+    │   └── StatsView.swift          # Named StatsView to avoid SwiftUI ProgressView conflict
     │
-    └── Profile/
-        ├── ProfileView.swift
-        └── SettingsView.swift
+    ├── ReadyCheck/
+    │   ├── ReadyCheckView.swift
+    │   └── ReadyCheckViewModel.swift
+    │
+    ├── Profile/
+    │   ├── ProfileView.swift
+    │   └── ProfileViewModel.swift
+    │
+    └── Debug/                       # Debug-only tools
+        ├── DebugTimeTravelView.swift
+        └── MockHealthKitManager.swift
 ```
 
 ---
@@ -136,11 +136,11 @@ Root structure: `TabView` with 4 tabs + a floating action button (FAB) for loggi
 
 ```
 TabView
-├── Tab 1: Dashboard (house icon)
-├── Tab 2: Calendar (calendar icon)
-├── Tab 3: Progress (chart.bar icon)
-├── Tab 4: Profile (person.circle icon)
-└── FAB overlay: "Log Workout" (plus.circle.fill) — floats above tab bar
+├── Tab 1: Dashboard  (house.fill)
+├── Tab 2: Plan       (calendar)
+├── Tab 3: Progress   (chart.bar.fill)
+├── Tab 4: Profile    (person.circle.fill)
+└── FAB overlay: "Log Workout" (plus.circle.fill) — floats above tab bar, home tab only
 ```
 
 - Use `NavigationStack` inside each tab (not `NavigationView`)
@@ -153,11 +153,13 @@ TabView
 
 ```
 UserProfile (1)
-  └── TrainingPlan (1)
-        └── WorkoutDay[] (N)    — one per calendar day across the full plan
-              └── WorkoutLog?  — nil until completed
+  └── TrainingPlan (1)                — .activePlan, cascade delete
+        └── WorkoutDay[] (N)          — one per calendar day across the full plan
+              └── WorkoutLog?         — nil until completed
 
-RaceEvent (1) — attached to UserProfile
+HistoricalRun (N)                     — imported from HealthKit, standalone
+ReadinessCheck (N)                    — daily readiness assessments
+AdaptationRecord (N)                  — plan adaptation history
 ```
 
 See `docs/ARCHITECTURE.md` for full SwiftData schema.
@@ -212,7 +214,7 @@ final class DashboardViewModel {
 - Query the last 24h of workouts when the app foregrounds
 - Match HealthKit workout to today's planned WorkoutDay by date
 - Pre-fill log form with HealthKit data; user confirms before saving
-- Never write to HealthKit in v1
+- Never write to HealthKit
 
 ---
 
@@ -235,15 +237,16 @@ final class DashboardViewModel {
 
 ## Known Naming Notes
 - The Progress tab view is named `StatsView` (not `ProgressView`) — `ProgressView` is a built-in SwiftUI component and causes a naming conflict.
-- `ConfettiOverlay` is a placeholder in `LogWorkoutView.swift` — implement as a Canvas particle system or integrate a lightweight SPM package.
+- `ConfettiOverlay` is implemented as a Canvas particle system in the UI layer.
 
 ---
 
 ## What NOT to do
 - No UIKit — SwiftUI only
-- No third-party packages (SPM) in v1 — use native frameworks
 - No `ObservableObject` / `@Published` — use `@Observable` macro
 - No global singletons — inject dependencies
 - No force unwraps (`!`) — use `guard`, `if let`, or `??`
 - No `NavigationView` — use `NavigationStack`
 - No hardcoded strings in UI — define workout type names as enums
+- No custom backend or server-side networking — native Apple API calls only
+- No SPM packages without justification — prefer native frameworks first

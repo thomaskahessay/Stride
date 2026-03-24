@@ -11,7 +11,7 @@ struct ContentView: View {
     @State private var showWorkoutDetail: WorkoutDay? = nil
 
     enum Tab {
-        case home, plan, progress, profileTab
+        case home, plan, routes, progress, profileTab
     }
 
     var body: some View {
@@ -37,6 +37,14 @@ struct ContentView: View {
                     .tag(Tab.plan)
                     .tabItem {
                         Label("Plan", systemImage: "calendar")
+                    }
+
+                NavigationStack {
+                    RouteMapView(locationManager: LocationManager.shared)
+                }
+                    .tag(Tab.routes)
+                    .tabItem {
+                        Label("Routes", systemImage: "map.fill")
                     }
 
                 StatsView(profile: profile)

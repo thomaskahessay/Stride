@@ -724,7 +724,57 @@ struct RestDayCard: View {
     }
 }
 
-// MARK: - Weekly Progress Card
+// MARK: - Weekly Progress Card (Running Track)
+
+/// A stadium-shaped running track with an open gap at the bottom center.
+/// Draws clockwise from just right of bottom-center to just left of bottom-center.
+private struct TrackShape: Shape {
+    /// Half the gap width in points at the bottom of the track.
+    static let gapHalf: CGFloat = 12
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.height / 2
+        let gapHalf = Self.gapHalf
+
+        guard rect.width - 2 * r >= 0 else {
+            return Path(ellipseIn: rect)
+        }
+
+        var path = Path()
+
+        // Start just right of bottom-center (the "start line")
+        let start = CGPoint(x: rect.midX + gapHalf, y: rect.maxY)
+        path.move(to: start)
+
+        // Bottom-right straight
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.maxY))
+
+        // Right semicircle (up)
+        path.addArc(center: CGPoint(x: rect.maxX - r, y: rect.midY),
+                     radius: r, startAngle: .degrees(90), endAngle: .degrees(-90), clockwise: true)
+
+        // Top straight (right to left)
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.minY))
+
+        // Left semicircle (down)
+        path.addArc(center: CGPoint(x: rect.minX + r, y: rect.midY),
+                     radius: r, startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: true)
+
+        // Bottom-left straight — stop just left of bottom-center (the "finish line")
+        let finish = CGPoint(x: rect.midX - gapHalf, y: rect.maxY)
+        path.addLine(to: finish)
+
+        return path
+    }
+
+    /// Returns the point at a given fraction (0…1) along the open track path.
+    func point(at fraction: Double, in rect: CGRect) -> CGPoint {
+        let p = path(in: rect)
+        let clamped = max(0.001, min(1.0, fraction))
+        let trimmed = p.trimmedPath(from: 0, to: clamped)
+        return trimmed.currentPoint ?? CGPoint(x: rect.midX + Self.gapHalf, y: rect.maxY)
+    }
+}
 
 struct WeeklyProgressCard: View {
     let completedMiles: Double
@@ -736,28 +786,169 @@ struct WeeklyProgressCard: View {
         return min(1.0, completedMiles / targetMiles)
     }
 
+    private let trackLineWidth: CGFloat = 6
+    private let trackShape = TrackShape()
+
+    private var mileageText: String {
+        "\(String(format: "%.1f", units.convert(completedMiles))) / \(String(format: "%.1f", units.convert(targetMiles))) \(units.shortLabel)"
+    }
+
     var body: some View {
         GlassCard {
-            VStack(alignment: .leading, spacing: .strideSM) {
-                HStack {
+            if fraction >= 1.0 {
+                WeekCompleteView(mileageText: mileageText)
+            } else {
+                VStack(alignment: .leading, spacing: .strideSM) {
                     Text("This Week")
                         .font(Font.stride.headingSmall)
-                    Spacer()
-                    Text("\(String(format: "%.1f", units.convert(completedMiles))) / \(String(format: "%.1f", units.convert(targetMiles))) \(units.shortLabel)")
-                        .font(Font.stride.bodyMedium)
-                        .foregroundStyle(.secondary)
+
+                    TrackView(
+                        fraction: fraction,
+                        trackLineWidth: trackLineWidth,
+                        mileageText: mileageText
+                    )
+                    .frame(height: 110)
+                }
+            }
+        }
+    }
+}
+
+/// Celebration card shown when the user completes their weekly mileage goal.
+/// Shows a checkered finish banner spanning the card, split in the middle
+/// with a runner bursting through.
+private struct WeekCompleteView: View {
+    let mileageText: String
+
+    private let bannerHeight: CGFloat = 36
+    private let checkerSize: CGFloat = 9
+    private let tearGap: CGFloat = 40
+
+    var body: some View {
+        VStack(spacing: .strideSM) {
+            Text("This Week")
+                .font(Font.stride.headingSmall)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            GeometryReader { geo in
+                let midX = geo.size.width / 2
+                let midY = geo.size.height / 2
+
+                ZStack {
+                    // Left half of checkered banner — slight downward rotation
+                    CheckeredBanner(checkerSize: checkerSize)
+                        .fill(Color.stride.lavenderDeep)
+                        .frame(width: midX - tearGap / 2, height: bannerHeight)
+                        .rotationEffect(.degrees(4), anchor: .trailing)
+                        .position(x: (midX - tearGap / 2) / 2, y: midY)
+
+                    // Right half of checkered banner — slight upward rotation
+                    CheckeredBanner(checkerSize: checkerSize)
+                        .fill(Color.stride.lavenderDeep)
+                        .frame(width: midX - tearGap / 2, height: bannerHeight)
+                        .rotationEffect(.degrees(-4), anchor: .leading)
+                        .position(x: midX + tearGap / 2 + (midX - tearGap / 2) / 2, y: midY)
+
+                    // Runner bursting through the center
+                    Image(systemName: "figure.run")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                        .position(x: midX, y: midY)
+                }
+            }
+            .frame(height: 70)
+
+            Text("Week complete!")
+                .font(Font.stride.headingSmall)
+                .foregroundStyle(Color.stride.lavenderDeep)
+
+            Text(mileageText)
+                .font(Font.stride.bodyMedium)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Draws a checkered pattern (alternating filled squares in a grid).
+private struct CheckeredBanner: Shape {
+    let checkerSize: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let cols = Int(ceil(rect.width / checkerSize))
+        let rows = Int(ceil(rect.height / checkerSize))
+
+        for row in 0..<rows {
+            for col in 0..<cols {
+                // Only draw filled squares in a checkerboard pattern
+                guard (row + col) % 2 == 0 else { continue }
+                let x = rect.minX + CGFloat(col) * checkerSize
+                let y = rect.minY + CGFloat(row) * checkerSize
+                let w = min(checkerSize, rect.maxX - x)
+                let h = min(checkerSize, rect.maxY - y)
+                path.addRect(CGRect(x: x, y: y, width: w, height: h))
+            }
+        }
+        return path
+    }
+}
+
+/// Renders the oval track with a gap, progress overlay, center label, and runner icon.
+private struct TrackView: View {
+    let fraction: Double
+    let trackLineWidth: CGFloat
+    let mileageText: String
+
+    /// Small offset so the colored line ends just before the runner icon.
+    private let runnerGap: Double = 0.015
+
+    var body: some View {
+        GeometryReader { geo in
+            let insetRect = CGRect(
+                x: trackLineWidth / 2,
+                y: trackLineWidth / 2,
+                width: geo.size.width - trackLineWidth,
+                height: geo.size.height - trackLineWidth
+            )
+
+            ZStack {
+                // Background track (full open path)
+                TrackShape()
+                    .stroke(Color.stride.lavenderLight,
+                            style: StrokeStyle(lineWidth: trackLineWidth, lineCap: .round))
+                    .padding(trackLineWidth / 2)
+
+                // Progress overlay — ends slightly before the runner for spacing
+                if fraction > 0 {
+                    let trimEnd = max(0.001, fraction - runnerGap)
+                    TrackShape()
+                        .trim(from: 0, to: trimEnd)
+                        .stroke(Color.stride.lavenderDeep,
+                                style: StrokeStyle(lineWidth: trackLineWidth, lineCap: .round))
+                        .padding(trackLineWidth / 2)
+                        .animation(.easeInOut(duration: 0.8), value: fraction)
                 }
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.stride.lavenderLight)
-                        Capsule()
-                            .fill(Color.stride.lavender)
-                            .frame(width: geo.size.width * fraction)
-                            .animation(.easeInOut(duration: 0.8), value: fraction)
-                    }
-                }
-                .frame(height: 8)
+                // Center mileage label
+                Text(mileageText)
+                    .font(Font.stride.bodyMedium)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .position(x: insetRect.midX, y: insetRect.midY)
+
+                // Runner icon — flip horizontally when heading left
+                let runnerPos = TrackShape().point(at: fraction, in: insetRect)
+                let aheadPos = TrackShape().point(at: min(1.0, fraction + 0.01), in: insetRect)
+                let headingLeft = aheadPos.x < runnerPos.x
+
+                Image(systemName: "figure.run")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .scaleEffect(x: headingLeft ? -1 : 1, y: 1)
+                    .position(runnerPos)
+                    .animation(.easeInOut(duration: 0.8), value: fraction)
+
             }
         }
     }

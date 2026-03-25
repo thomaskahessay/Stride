@@ -494,6 +494,7 @@ struct RouteMapView: View {
                 showSaveConfirmation = false
                 viewModel.stopCreating()
             }
+            dismiss()
         }
     }
 

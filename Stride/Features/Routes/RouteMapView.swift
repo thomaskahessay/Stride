@@ -127,6 +127,8 @@ struct RouteMapView: View {
             RouteInfoPanel(
                 distanceMeters: viewModel.totalDistanceMeters,
                 waypointCount: viewModel.waypoints.count,
+                elevationGain: viewModel.elevationGain,
+                isLoadingElevation: viewModel.isLoadingElevation,
                 unitSystem: unitSystem,
                 isLoading: viewModel.isLoadingSegment,
                 onSave: saveRoute
@@ -135,6 +137,9 @@ struct RouteMapView: View {
             .presentationDragIndicator(.hidden)
             .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.3)))
             .presentationBackground(.ultraThinMaterial)
+            .task {
+                await viewModel.fetchElevation()
+            }
         }
         .sensoryFeedback(.success, trigger: showSaveConfirmation)
         .overlay {
@@ -400,14 +405,18 @@ struct RouteMapView: View {
         .alert("Save as New Route", isPresented: $showSaveAsNewPrompt) {
             TextField("Route name", text: $saveAsNewName)
             Button("Save") {
-                _ = viewModel.saveAsNewRoute(name: saveAsNewName, modelContext: modelContext)
-                showSaveAsNewPrompt = false
-                showSaveConfirmation = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation {
-                        showSaveConfirmation = false
-                        viewModel.stopCreating()
-                        dismiss()
+                Task {
+                    await viewModel.fetchElevation()
+                    let newRoute = viewModel.saveAsNewRoute(name: saveAsNewName, modelContext: modelContext)
+                    newRoute.elevationGain = viewModel.elevationGain
+                    showSaveAsNewPrompt = false
+                    showSaveConfirmation = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation {
+                            showSaveConfirmation = false
+                            viewModel.stopCreating()
+                            dismiss()
+                        }
                     }
                 }
             }
@@ -419,17 +428,22 @@ struct RouteMapView: View {
 
     private func saveEditedRoute() {
         guard let route = viewModel.editingRoute else { return }
-        viewModel.updateRoute(route)
 
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            showSaveConfirmation = true
-        }
+        Task {
+            await viewModel.fetchElevation()
+            viewModel.updateRoute(route)
+            route.elevationGain = viewModel.elevationGain
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation {
-                showSaveConfirmation = false
-                viewModel.stopCreating()
-                dismiss()
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                showSaveConfirmation = true
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation {
+                    showSaveConfirmation = false
+                    viewModel.stopCreating()
+                    dismiss()
+                }
             }
         }
     }
@@ -483,6 +497,7 @@ struct RouteMapView: View {
             PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
         }
         route.segmentPolylines = viewModel.currentSegmentPolylines
+        route.elevationGain = viewModel.elevationGain
 
         showInfoPanel = false
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {

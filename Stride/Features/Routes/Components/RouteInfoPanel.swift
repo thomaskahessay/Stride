@@ -3,6 +3,8 @@ import SwiftUI
 struct RouteInfoPanel: View {
     let distanceMeters: Double
     let waypointCount: Int
+    let elevationGain: Double?
+    let isLoadingElevation: Bool
     let unitSystem: UnitSystem
     let isLoading: Bool
     let onSave: (String) -> Void
@@ -18,6 +20,18 @@ struct RouteInfoPanel: View {
         case .miles:
             let mi = distanceMeters / 1609.344
             return String(format: "%.2f mi", mi)
+        }
+    }
+
+    private var formattedElevation: String {
+        if isLoadingElevation { return "..." }
+        guard let gain = elevationGain else { return "—" }
+        switch unitSystem {
+        case .kilometers:
+            return String(format: "%.0f m", gain)
+        case .miles:
+            let feet = gain * 3.28084
+            return String(format: "%.0f ft", feet)
         }
     }
 
@@ -74,7 +88,7 @@ struct RouteInfoPanel: View {
 
                 statItem(
                     icon: "mountain.2",
-                    value: "—",
+                    value: formattedElevation,
                     label: "Elevation"
                 )
             }

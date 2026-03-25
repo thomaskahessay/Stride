@@ -11,6 +11,8 @@ final class RouteCreationViewModel {
     var isCreating = false
     var isLoopClosed = false
     var isLoadingSegment = false
+    var isLoadingElevation = false
+    var elevationGain: Double?
     var routeError: String?
 
     /// Non-nil when editing an existing route.
@@ -33,6 +35,9 @@ final class RouteCreationViewModel {
 
     /// Debounce work item for directions requests.
     private var pendingDirectionsWork: DispatchWorkItem?
+
+    /// Service for fetching elevation data.
+    private let elevationService = ElevationService()
 
     // MARK: - Computed — Polyline Coordinates
 
@@ -140,6 +145,8 @@ final class RouteCreationViewModel {
         segmentRoutes = [:]
         straightLineFallbacks = []
         routeError = nil
+        elevationGain = nil
+        isLoadingElevation = false
     }
 
     func stopCreating() {
@@ -150,6 +157,8 @@ final class RouteCreationViewModel {
         segmentRoutes = [:]
         straightLineFallbacks = []
         routeError = nil
+        elevationGain = nil
+        isLoadingElevation = false
         pendingDirectionsWork?.cancel()
     }
 
@@ -464,6 +473,28 @@ final class RouteCreationViewModel {
         }
 
         return result
+    }
+
+    // MARK: - Elevation
+
+    /// Fetch elevation gain for the current polyline. Call before saving.
+    @MainActor
+    func fetchElevation() async {
+        let coords = flatPolylineCoordinates
+        guard coords.count >= 2 else {
+            elevationGain = nil
+            return
+        }
+
+        isLoadingElevation = true
+        do {
+            let result = try await elevationService.fetchElevation(for: coords)
+            elevationGain = result.gain
+        } catch {
+            // Non-fatal — elevation is optional, route still saves
+            elevationGain = nil
+        }
+        isLoadingElevation = false
     }
 
     // MARK: - MKDirections

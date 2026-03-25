@@ -113,6 +113,17 @@ struct RouteDetailView: View {
 
     // MARK: - Stats Section
 
+    private var formattedElevation: String {
+        guard let gain = route.elevationGain else { return "—" }
+        switch unitSystem {
+        case .kilometers:
+            return String(format: "%.0f m", gain)
+        case .miles:
+            let feet = gain * 3.28084
+            return String(format: "%.0f ft", feet)
+        }
+    }
+
     private var statsSection: some View {
         GlassCard {
             HStack(spacing: 0) {
@@ -133,9 +144,9 @@ struct RouteDetailView: View {
                 Divider().frame(height: 40)
 
                 statItem(
-                    icon: "mappin.and.ellipse",
-                    value: "\(route.waypoints.count)",
-                    label: "Waypoints"
+                    icon: "mountain.2",
+                    value: formattedElevation,
+                    label: "Elevation"
                 )
             }
         }

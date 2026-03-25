@@ -9,7 +9,6 @@ struct RouteDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = RouteDetailViewModel()
     @State private var cameraPosition: MapCameraPosition = .automatic
-    @State private var showShareToast = false
     @State private var trackingVM: RunTrackingViewModel?
     @State private var startOverride = false
     @State private var runSummary: RunSummary?
@@ -73,10 +72,8 @@ struct RouteDetailView: View {
         } message: {
             Text("This route will be permanently deleted.")
         }
-        .overlay {
-            if showShareToast {
-                shareToast
-            }
+        .sheet(item: $viewModel.shareItem) { item in
+            ActivityView(url: item.url)
         }
         .sheet(item: $runSummary) { summary in
             runSummarySheet(summary)
@@ -435,19 +432,32 @@ struct RouteDetailView: View {
             }
             .buttonStyle(StridePrimaryButtonStyle())
 
-            Button {
-                showShareToast = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    withAnimation { showShareToast = false }
+            Menu {
+                Button {
+                    viewModel.exportRoute(route, format: .stride)
+                } label: {
+                    Label("Share as Stride File", systemImage: "paperplane")
+                }
+
+                Button {
+                    viewModel.exportRoute(route, format: .gpx)
+                } label: {
+                    Label("Export as GPX", systemImage: "doc.text")
                 }
             } label: {
                 HStack {
                     Image(systemName: "square.and.arrow.up")
                     Text("Share Route")
                 }
+                .font(Font.stride.bodyMedium.weight(.semibold))
+                .foregroundStyle(Color.stride.lavenderDeep)
                 .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: .strideRadiusMD, style: .continuous)
+                        .fill(Color.stride.lavenderLight)
+                )
             }
-            .secondaryStyle()
 
             Button(role: .destructive) {
                 viewModel.showDeleteConfirmation = true
@@ -504,22 +514,6 @@ struct RouteDetailView: View {
         .accessibilityLabel("\(label): \(value)")
     }
 
-    // MARK: - Share Toast
-
-    private var shareToast: some View {
-        VStack {
-            Spacer()
-            Text("Coming soon")
-                .font(Font.stride.bodyMedium.weight(.medium))
-                .padding(.horizontal, .strideLG)
-                .padding(.vertical, .strideSM)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 2)
-                .padding(.bottom, .strideXL)
-        }
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-    }
 }
 
 // MARK: - Run Summary (Identifiable for sheet binding)

@@ -24,18 +24,23 @@ struct SavedRoutesView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    RouteMapView(
-                        locationManager: LocationManager.shared,
-                        unitSystem: unitSystem
-                    )
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.stride.lavenderDeep)
-                        .accessibilityLabel("Create new route")
+                HStack(spacing: .strideMD) {
+                    if !routes.isEmpty {
+                        sortMenu
+                    }
+                    NavigationLink {
+                        RouteMapView(
+                            locationManager: LocationManager.shared,
+                            unitSystem: unitSystem
+                        )
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                            .accessibilityLabel("Create new route")
+                    }
+                    .disabled(locationManager.isDenied)
                 }
-                .disabled(locationManager.isDenied)
             }
         }
         .alert("Delete Route?", isPresented: $viewModel.showDeleteConfirmation) {
@@ -55,15 +60,28 @@ struct SavedRoutesView: View {
     // MARK: - Route List
 
     private var routeList: some View {
-        List {
-            ForEach(routes) { route in
-                ZStack {
-                    NavigationLink(value: route) {
-                        EmptyView()
-                    }
-                    .opacity(0)
+        let favorites = viewModel.favoriteRoutes(from: routes)
+        let others = viewModel.nonFavoriteRoutes(from: routes)
+        let hasSearchResults = !favorites.isEmpty || !others.isEmpty
 
-                    routeRow(route)
+        return List {
+            if !hasSearchResults {
+                noSearchResultsRow
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+
+            // Favourites Section
+            if !favorites.isEmpty {
+                Section {
+                    ForEach(favorites) { route in
+                        routeNavigationRow(route)
+                    }
+                } header: {
+                    Text("Favourites")
+                        .font(Font.stride.bodyLarge.weight(.semibold))
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                        .textCase(nil)
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -73,34 +91,108 @@ struct SavedRoutesView: View {
                     bottom: .strideSM / 2,
                     trailing: .strideMD
                 ))
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        viewModel.confirmDelete(route)
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+            }
+
+            // All Routes Section
+            if !others.isEmpty {
+                Section {
+                    ForEach(others) { route in
+                        routeNavigationRow(route)
                     }
+                } header: {
+                    Text(favorites.isEmpty ? "All Routes" : "Other Routes")
+                        .font(Font.stride.bodyLarge.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(nil)
                 }
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        withAnimation {
-                            viewModel.toggleFavorite(route)
-                        }
-                    } label: {
-                        Label(
-                            route.isFavorite ? "Unfavorite" : "Favorite",
-                            systemImage: route.isFavorite ? "star.slash" : "star.fill"
-                        )
-                    }
-                    .tint(Color.stride.lavenderDeep)
-                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(
+                    top: .strideSM / 2,
+                    leading: .strideMD,
+                    bottom: .strideSM / 2,
+                    trailing: .strideMD
+                ))
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .searchable(text: $viewModel.searchText, prompt: "Search routes")
         .background(LinearGradient.strideBackground.ignoresSafeArea())
         .navigationDestination(for: Route.self) { route in
             RouteDetailView(route: route, unitSystem: unitSystem)
         }
+    }
+
+    // MARK: - Sort Menu
+
+    private var sortMenu: some View {
+        Menu {
+            ForEach(RouteSortOption.allCases) { option in
+                Button {
+                    withAnimation { viewModel.sortOption = option }
+                } label: {
+                    if viewModel.sortOption == option {
+                        Label(option.rawValue, systemImage: "checkmark")
+                    } else {
+                        Text(option.rawValue)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.stride.lavenderDeep)
+                .accessibilityLabel("Sort routes")
+        }
+    }
+
+    // MARK: - Route Navigation Row
+
+    private func routeNavigationRow(_ route: Route) -> some View {
+        ZStack {
+            NavigationLink(value: route) {
+                EmptyView()
+            }
+            .opacity(0)
+
+            routeRow(route)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                viewModel.confirmDelete(route)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                withAnimation {
+                    viewModel.toggleFavorite(route)
+                }
+            } label: {
+                Label(
+                    route.isFavorite ? "Unfavorite" : "Favorite",
+                    systemImage: route.isFavorite ? "star.slash" : "star.fill"
+                )
+            }
+            .tint(Color.stride.lavenderDeep)
+        }
+    }
+
+    // MARK: - No Search Results
+
+    private var noSearchResultsRow: some View {
+        VStack(spacing: .strideSM) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 32))
+                .foregroundStyle(Color.stride.lavenderDeep.opacity(0.4))
+            Text("No routes match \"\(viewModel.searchText)\"")
+                .font(Font.stride.bodyMedium)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, .strideXL)
     }
 
     // MARK: - Route Row

@@ -8,6 +8,14 @@ Stride is a Swift/SwiftUI iOS running app for training plan management. It gener
 
 ---
 
+## Build Configuration
+- **Build simulator:** Always use `iPhone 17 Pro` as the destination simulator. Never use any other device.
+  ```
+  xcodebuild -scheme Stride -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+  ```
+
+---
+
 ## Tech Stack
 - **Language:** Swift 5.10+
 - **UI:** SwiftUI (no UIKit)

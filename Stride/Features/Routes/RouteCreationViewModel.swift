@@ -10,7 +10,10 @@ final class RouteCreationViewModel {
     var waypoints: [RouteWaypoint] = []
     var isCreating = false
     var isLoopClosed = false
-    var isLoadingSegment = false
+    /// Number of segment direction requests currently in flight.
+    private var loadingSegmentCount = 0
+
+    var isLoadingSegment: Bool { loadingSegmentCount > 0 }
     var isLoadingElevation = false
     var elevationGain: Double?
     var routeError: String?
@@ -39,8 +42,8 @@ final class RouteCreationViewModel {
     /// Cached polyline coordinates restored from a saved route (used until MKDirections replaces them).
     private var restoredSegmentPolylines: [String: [CLLocationCoordinate2D]] = [:]
 
-    /// Debounce work item for directions requests.
-    private var pendingDirectionsWork: DispatchWorkItem?
+    /// Per-segment debounce work items for directions requests.
+    private var pendingDirectionsWork: [String: DispatchWorkItem] = [:]
 
     /// Debounce work item for elevation requests.
     private var pendingElevationWork: DispatchWorkItem?
@@ -179,6 +182,7 @@ final class RouteCreationViewModel {
         routeError = nil
         elevationGain = nil
         isLoadingElevation = false
+        loadingSegmentCount = 0
         hasModifiedSegments = false
     }
 
@@ -192,8 +196,10 @@ final class RouteCreationViewModel {
         routeError = nil
         elevationGain = nil
         isLoadingElevation = false
+        loadingSegmentCount = 0
         hasModifiedSegments = false
-        pendingDirectionsWork?.cancel()
+        pendingDirectionsWork.values.forEach { $0.cancel() }
+        pendingDirectionsWork = [:]
         pendingElevationWork?.cancel()
         searchService.clear()
         isSearchExpanded = false
@@ -313,8 +319,11 @@ final class RouteCreationViewModel {
         }
 
         let sorted = waypoints.sorted { $0.order < $1.order }
-        let sortedIndex = sorted.firstIndex(where: { $0.id == id }) ?? 0
+        guard let sortedIndex = sorted.firstIndex(where: { $0.id == id }) else { return }
         let removed = sorted[sortedIndex]
+
+        // Build a map from old waypoint ID to old order (before removal)
+        let oldOrderByID = Dictionary(uniqueKeysWithValues: sorted.map { ($0.id, $0.order) })
 
         // Remove old segments connected to this waypoint
         if sortedIndex > 0 {
@@ -335,30 +344,67 @@ final class RouteCreationViewModel {
         // Re-number waypoints
         let resorted = waypoints.sorted { $0.order < $1.order }
         waypoints = resorted.enumerated().map { i, wp in
-            var updated = wp
-            updated = RouteWaypoint(
+            RouteWaypoint(
                 id: wp.id,
                 latitude: wp.latitude,
                 longitude: wp.longitude,
                 order: i,
                 type: i == 0 ? .start : (i == resorted.count - 1 ? .end : .via)
             )
-            return updated
         }
 
-        // Rebuild segment cache for affected connection
-        if sortedIndex > 0 && sortedIndex <= waypoints.count {
-            let newSorted = waypoints.sorted { $0.order < $1.order }
-            let prev = newSorted[sortedIndex - 1]
-            if sortedIndex < newSorted.count {
-                let next = newSorted[sortedIndex]
-                let key = segmentKey(from: prev.order, to: next.order)
-                requestDirectionsDebounced(
-                    from: CLLocationCoordinate2D(latitude: prev.latitude, longitude: prev.longitude),
-                    to: CLLocationCoordinate2D(latitude: next.latitude, longitude: next.longitude),
-                    key: key
-                )
+        // Re-key surviving segment caches from old order keys to new order keys
+        let newOrderByID = Dictionary(uniqueKeysWithValues: waypoints.map { ($0.id, $0.order) })
+        let newSorted = waypoints.sorted { $0.order < $1.order }
+
+        var updatedSegmentRoutes: [String: MKRoute] = [:]
+        var updatedRestoredPolylines: [String: [CLLocationCoordinate2D]] = [:]
+        var updatedFallbacks: Set<String> = []
+
+        for i in 1..<newSorted.count {
+            let prevID = newSorted[i - 1].id
+            let currID = newSorted[i].id
+            guard let oldPrevOrder = oldOrderByID[prevID],
+                  let oldCurrOrder = oldOrderByID[currID] else { continue }
+            let oldKey = segmentKey(from: oldPrevOrder, to: oldCurrOrder)
+            let newKey = segmentKey(from: newSorted[i - 1].order, to: newSorted[i].order)
+
+            if let route = segmentRoutes[oldKey] {
+                updatedSegmentRoutes[newKey] = route
             }
+            if let restored = restoredSegmentPolylines[oldKey] {
+                updatedRestoredPolylines[newKey] = restored
+            }
+            if straightLineFallbacks.contains(oldKey) {
+                updatedFallbacks.insert(newKey)
+            }
+        }
+
+        // Preserve loop segment (key doesn't depend on order)
+        if let loopRoute = segmentRoutes["loop"] {
+            updatedSegmentRoutes["loop"] = loopRoute
+        }
+        if let loopRestored = restoredSegmentPolylines["loop"] {
+            updatedRestoredPolylines["loop"] = loopRestored
+        }
+        if straightLineFallbacks.contains("loop") {
+            updatedFallbacks.insert("loop")
+        }
+
+        segmentRoutes = updatedSegmentRoutes
+        restoredSegmentPolylines = updatedRestoredPolylines
+        straightLineFallbacks = updatedFallbacks
+
+        // Request directions for the newly connected segment (where the gap was)
+        if sortedIndex > 0 && sortedIndex < newSorted.count {
+            let prev = newSorted[sortedIndex - 1]
+            let next = newSorted[sortedIndex]
+            let key = segmentKey(from: prev.order, to: next.order)
+            requestDirectionsDebounced(
+                from: CLLocationCoordinate2D(latitude: prev.latitude, longitude: prev.longitude),
+                to: CLLocationCoordinate2D(latitude: next.latitude, longitude: next.longitude),
+                key: key
+            )
         }
     }
 
@@ -482,8 +528,11 @@ final class RouteCreationViewModel {
         isLoopClosed = false
         segmentRoutes = [:]
         straightLineFallbacks = []
+        restoredSegmentPolylines = [:]
         routeError = nil
-        pendingDirectionsWork?.cancel()
+        pendingDirectionsWork.values.forEach { $0.cancel() }
+        pendingDirectionsWork = [:]
+        pendingElevationWork?.cancel()
     }
 
     func closeLoop() {
@@ -585,15 +634,16 @@ final class RouteCreationViewModel {
         to destination: CLLocationCoordinate2D,
         key: String
     ) {
-        pendingDirectionsWork?.cancel()
+        pendingDirectionsWork[key]?.cancel()
 
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            self.pendingDirectionsWork.removeValue(forKey: key)
             Task { @MainActor in
                 await self.fetchDirections(from: source, to: destination, key: key)
             }
         }
-        pendingDirectionsWork = work
+        pendingDirectionsWork[key] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
@@ -606,7 +656,7 @@ final class RouteCreationViewModel {
         // Skip if already cached
         guard segmentRoutes[key] == nil else { return }
 
-        isLoadingSegment = true
+        loadingSegmentCount += 1
         routeError = nil
 
         let request = MKDirections.Request()
@@ -640,7 +690,7 @@ final class RouteCreationViewModel {
             }
         }
 
-        isLoadingSegment = false
+        loadingSegmentCount = max(loadingSegmentCount - 1, 0)
         fetchElevationDebounced()
     }
 }

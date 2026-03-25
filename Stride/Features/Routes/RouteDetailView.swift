@@ -12,6 +12,7 @@ struct RouteDetailView: View {
     @State private var showShareToast = false
     @State private var trackingVM: RunTrackingViewModel?
     @State private var startOverride = false
+    @State private var runSummary: RunSummary?
 
     private var locationManager: LocationManager { LocationManager.shared }
 
@@ -77,7 +78,7 @@ struct RouteDetailView: View {
                 shareToast
             }
         }
-        .sheet(item: summaryBinding) { summary in
+        .sheet(item: $runSummary) { summary in
             runSummarySheet(summary)
                 .presentationDetents([.fraction(0.4)])
                 .presentationDragIndicator(.visible)
@@ -243,7 +244,14 @@ struct RouteDetailView: View {
             // Stop button
             Button {
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    trackingVM?.stopRun()
+                    if let vm = trackingVM {
+                        vm.stopRun()
+                        runSummary = RunSummary(
+                            distance: vm.formattedSummaryDistance,
+                            duration: vm.formattedSummaryDuration,
+                            pace: vm.formattedSummaryPace
+                        )
+                    }
                     cameraPosition = .automatic
                 }
             } label: {
@@ -456,25 +464,6 @@ struct RouteDetailView: View {
 
     // MARK: - Run Summary Sheet
 
-    private var summaryBinding: Binding<RunSummary?> {
-        Binding(
-            get: {
-                guard let vm = trackingVM, vm.showSummary else { return nil }
-                return RunSummary(
-                    distance: vm.formattedSummaryDistance,
-                    duration: vm.formattedSummaryDuration,
-                    pace: vm.formattedSummaryPace
-                )
-            },
-            set: { newValue in
-                if newValue == nil {
-                    trackingVM?.dismissSummary()
-                    trackingVM = nil
-                }
-            }
-        )
-    }
-
     private func runSummarySheet(_ summary: RunSummary) -> some View {
         VStack(spacing: .strideLG) {
             Text("Run Complete")
@@ -489,6 +478,7 @@ struct RouteDetailView: View {
             }
 
             Button {
+                runSummary = nil
                 trackingVM?.dismissSummary()
                 trackingVM = nil
             } label: {

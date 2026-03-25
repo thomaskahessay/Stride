@@ -97,7 +97,7 @@ struct RouteMapView: View {
             }
 
             // Bottom controls overlay
-            if viewModel.isCreating {
+            if viewModel.isCreating && !showInfoPanel {
                 if viewModel.isEditing {
                     editControls
                         .transition(.move(edge: .bottom).combined(with: .opacity))

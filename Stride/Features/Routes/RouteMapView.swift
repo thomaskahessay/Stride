@@ -4,13 +4,18 @@ import MapKit
 struct RouteMapView: View {
     let locationManager: LocationManager
     var unitSystem: UnitSystem = .kilometers
+    var editingRoute: Route?
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     @State private var cameraPosition: MapCameraPosition = .userLocation(fallback: .automatic)
     @State private var hasInitiallyCentered = false
     @State var viewModel = RouteCreationViewModel()
     @State private var showInfoPanel = false
     @State private var showSaveConfirmation = false
+    @State private var showSaveAsNewPrompt = false
+    @State private var saveAsNewName = ""
+    @State private var showCancelConfirmation = false
 
     private let routeService = RouteService()
 
@@ -29,9 +34,18 @@ struct RouteMapView: View {
                                 longitude: waypoint.longitude
                             )
                         ) {
-                            WaypointMarker(
-                                order: waypoint.order,
-                                isStart: waypoint.type == .start
+                            DraggableWaypointMarker(
+                                waypoint: waypoint,
+                                isDraggingEnabled: viewModel.isEditing,
+                                mapProxy: proxy,
+                                onDragEnd: { newCoord in
+                                    viewModel.moveWaypoint(id: waypoint.id, to: newCoord)
+                                },
+                                onRemove: viewModel.waypoints.count > 2 ? {
+                                    withAnimation {
+                                        viewModel.removeWaypoint(id: waypoint.id)
+                                    }
+                                } : nil
                             )
                         }
                     }
@@ -57,6 +71,10 @@ struct RouteMapView: View {
             }
             .onAppear {
                 locationManager.startTracking()
+                if let editingRoute, !viewModel.isEditing {
+                    viewModel.loadRoute(editingRoute)
+                    zoomToFitRoute(editingRoute)
+                }
             }
             .onDisappear {
                 locationManager.stopTracking()
@@ -77,14 +95,21 @@ struct RouteMapView: View {
 
             // Bottom controls overlay
             if viewModel.isCreating {
-                creationControls
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                if viewModel.isEditing {
+                    editControls
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    creationControls
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .overlay(alignment: .topTrailing) {
             VStack(spacing: .strideSM) {
                 recentreButton
-                createRouteToggle
+                if !viewModel.isEditing {
+                    createRouteToggle
+                }
             }
             .padding(.trailing, .strideMD)
             .padding(.top, .strideSM)
@@ -95,7 +120,7 @@ struct RouteMapView: View {
             }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: viewModel.waypoints.count)
-        .navigationTitle("Routes")
+        .navigationTitle(viewModel.isEditing ? "Edit Route" : "Routes")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showInfoPanel) {
             RouteInfoPanel(
@@ -269,6 +294,167 @@ struct RouteMapView: View {
         }
     }
 
+    // MARK: - Edit Controls
+
+    private var editControls: some View {
+        VStack(spacing: .strideSM) {
+            // Distance display
+            HStack(spacing: .strideSM) {
+                Text(viewModel.formattedDistance)
+                    .font(Font.stride.headingMedium)
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .contentTransition(.numericText())
+
+                if viewModel.isLoadingSegment {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.stride.lavenderDeep)
+                }
+            }
+
+            if viewModel.hasStraightLineFallback {
+                Text("Some segments use straight-line distance")
+                    .font(Font.stride.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let error = viewModel.routeError {
+                Text(error)
+                    .font(Font.stride.caption)
+                    .foregroundStyle(Color.stride.coral)
+            }
+
+            // Edit action buttons
+            HStack(spacing: 12) {
+                controlButton(
+                    icon: "arrow.uturn.backward",
+                    label: "Undo",
+                    disabled: !viewModel.canUndo
+                ) {
+                    withAnimation { viewModel.undoLastWaypoint() }
+                }
+
+                controlButton(
+                    icon: "trash",
+                    label: "Clear",
+                    disabled: viewModel.waypoints.isEmpty
+                ) {
+                    withAnimation { viewModel.clearWaypoints() }
+                }
+
+                controlButton(
+                    icon: "arrow.triangle.capsulepath",
+                    label: "Close Loop",
+                    disabled: !viewModel.canCloseLoop
+                ) {
+                    withAnimation { viewModel.closeLoop() }
+                }
+            }
+
+            // Save / Save as New / Cancel
+            HStack(spacing: .strideSM) {
+                Button("Cancel") {
+                    showCancelConfirmation = true
+                }
+                .ghostStyle()
+
+                Button("Save as New") {
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "MMM d, yyyy"
+                    saveAsNewName = "\(viewModel.editingRoute?.name ?? "Route") (copy)"
+                    showSaveAsNewPrompt = true
+                }
+                .secondaryStyle()
+
+                Button("Save") {
+                    saveEditedRoute()
+                }
+                .primaryStyle()
+            }
+        }
+        .padding(.strideMD)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: .strideRadiusLG, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: .strideRadiusLG, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+        )
+        .shadow(color: Color.stride.lavenderDeep.opacity(0.12), radius: 12, x: 0, y: 4)
+        .padding(.horizontal, .strideMD)
+        .padding(.bottom, .strideSM)
+        .alert("Discard Changes?", isPresented: $showCancelConfirmation) {
+            Button("Discard", role: .destructive) {
+                viewModel.stopCreating()
+                dismiss()
+            }
+            Button("Keep Editing", role: .cancel) {}
+        } message: {
+            Text("Your unsaved changes will be lost.")
+        }
+        .alert("Save as New Route", isPresented: $showSaveAsNewPrompt) {
+            TextField("Route name", text: $saveAsNewName)
+            Button("Save") {
+                _ = viewModel.saveAsNewRoute(name: saveAsNewName, modelContext: modelContext)
+                showSaveAsNewPrompt = false
+                showSaveConfirmation = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    withAnimation {
+                        showSaveConfirmation = false
+                        viewModel.stopCreating()
+                        dismiss()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter a name for the new route.")
+        }
+    }
+
+    private func saveEditedRoute() {
+        guard let route = viewModel.editingRoute else { return }
+        viewModel.updateRoute(route)
+
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            showSaveConfirmation = true
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation {
+                showSaveConfirmation = false
+                viewModel.stopCreating()
+                dismiss()
+            }
+        }
+    }
+
+    private func zoomToFitRoute(_ route: Route) {
+        let wps = route.waypoints
+        guard !wps.isEmpty else { return }
+        let lats = wps.map(\.latitude)
+        let lons = wps.map(\.longitude)
+        guard let minLat = lats.min(), let maxLat = lats.max(),
+              let minLon = lons.min(), let maxLon = lons.max() else { return }
+
+        let center = CLLocationCoordinate2D(
+            latitude: (minLat + maxLat) / 2,
+            longitude: (minLon + maxLon) / 2
+        )
+        let latDelta = max((maxLat - minLat) * 1.4, 0.005)
+        let lonDelta = max((maxLon - minLon) * 1.4, 0.005)
+
+        hasInitiallyCentered = true
+        withAnimation {
+            cameraPosition = .region(
+                MKCoordinateRegion(
+                    center: center,
+                    span: MKCoordinateSpan(latitudeDelta: latDelta, longitudeDelta: lonDelta)
+                )
+            )
+        }
+    }
+
     // MARK: - Save Route
 
     private func saveRoute(name: String) {
@@ -353,5 +539,54 @@ private struct WaypointMarker: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)
         }
+    }
+}
+
+// MARK: - Draggable Waypoint Marker
+
+private struct DraggableWaypointMarker: View {
+    let waypoint: RouteWaypoint
+    let isDraggingEnabled: Bool
+    let mapProxy: MapProxy
+    let onDragEnd: (CLLocationCoordinate2D) -> Void
+    let onRemove: (() -> Void)?
+
+    @State private var isDragging = false
+    @State private var dragOffset: CGSize = .zero
+
+    var body: some View {
+        WaypointMarker(order: waypoint.order, isStart: waypoint.type == .start)
+            .scaleEffect(isDragging ? 1.3 : 1.0)
+            .opacity(isDragging ? 0.8 : 1.0)
+            .offset(dragOffset)
+            .gesture(
+                isDraggingEnabled
+                ? DragGesture()
+                    .onChanged { value in
+                        isDragging = true
+                        dragOffset = value.translation
+                    }
+                    .onEnded { value in
+                        isDragging = false
+                        // Convert the current screen position to a map coordinate
+                        let screenPoint = CGPoint(
+                            x: value.startLocation.x + value.translation.width,
+                            y: value.startLocation.y + value.translation.height
+                        )
+                        if let coordinate = mapProxy.convert(screenPoint, from: .local) {
+                            onDragEnd(coordinate)
+                        }
+                        dragOffset = .zero
+                    }
+                : nil
+            )
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isDragging)
+            .contextMenu {
+                if let onRemove {
+                    Button(role: .destructive, action: onRemove) {
+                        Label("Remove", systemImage: "trash")
+                    }
+                }
+            }
     }
 }

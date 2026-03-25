@@ -152,6 +152,21 @@ struct RouteDetailView: View {
 
     private var actionsSection: some View {
         VStack(spacing: .strideSM) {
+            NavigationLink {
+                RouteMapView(
+                    locationManager: LocationManager.shared,
+                    unitSystem: unitSystem,
+                    editingRoute: route
+                )
+            } label: {
+                HStack {
+                    Image(systemName: "pencil")
+                    Text("Edit Route")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .primaryStyle()
+
             Button {
                 showShareToast = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

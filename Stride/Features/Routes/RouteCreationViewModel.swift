@@ -1,5 +1,6 @@
 import Foundation
 import MapKit
+import SwiftData
 
 @Observable
 final class RouteCreationViewModel {
@@ -11,6 +12,12 @@ final class RouteCreationViewModel {
     var isLoopClosed = false
     var isLoadingSegment = false
     var routeError: String?
+
+    /// Non-nil when editing an existing route.
+    var editingRoute: Route?
+
+    /// True when in edit mode (vs create mode).
+    var isEditing: Bool { editingRoute != nil }
 
     // MARK: - Segment Cache
 
@@ -130,12 +137,194 @@ final class RouteCreationViewModel {
 
     func stopCreating() {
         isCreating = false
+        editingRoute = nil
         waypoints = []
         isLoopClosed = false
         segmentRoutes = [:]
         straightLineFallbacks = []
         routeError = nil
         pendingDirectionsWork?.cancel()
+    }
+
+    // MARK: - Edit Mode
+
+    /// Load an existing route for editing.
+    func loadRoute(_ route: Route) {
+        editingRoute = route
+        isCreating = true
+        isLoopClosed = false
+        segmentRoutes = [:]
+        straightLineFallbacks = [:]
+        routeError = nil
+
+        waypoints = route.waypoints.sorted { $0.order < $1.order }
+
+        // Request directions for all consecutive segments
+        for i in 1..<waypoints.count {
+            let from = waypoints[i - 1]
+            let to = waypoints[i]
+            let key = segmentKey(from: from.order, to: to.order)
+            requestDirectionsDebounced(
+                from: CLLocationCoordinate2D(latitude: from.latitude, longitude: from.longitude),
+                to: CLLocationCoordinate2D(latitude: to.latitude, longitude: to.longitude),
+                key: key
+            )
+        }
+    }
+
+    /// Move a waypoint to a new position and recalculate affected segments.
+    func moveWaypoint(id: UUID, to coordinate: CLLocationCoordinate2D) {
+        guard let index = waypoints.firstIndex(where: { $0.id == id }) else { return }
+
+        waypoints[index] = RouteWaypoint(
+            id: waypoints[index].id,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            order: waypoints[index].order,
+            type: waypoints[index].type
+        )
+
+        let sorted = waypoints.sorted { $0.order < $1.order }
+        guard let sortedIndex = sorted.firstIndex(where: { $0.id == id }) else { return }
+
+        // Recalculate segment before this waypoint
+        if sortedIndex > 0 {
+            let prev = sorted[sortedIndex - 1]
+            let current = sorted[sortedIndex]
+            let key = segmentKey(from: prev.order, to: current.order)
+            segmentRoutes.removeValue(forKey: key)
+            straightLineFallbacks.remove(key)
+            requestDirectionsDebounced(
+                from: CLLocationCoordinate2D(latitude: prev.latitude, longitude: prev.longitude),
+                to: CLLocationCoordinate2D(latitude: current.latitude, longitude: current.longitude),
+                key: key
+            )
+        }
+
+        // Recalculate segment after this waypoint
+        if sortedIndex < sorted.count - 1 {
+            let current = sorted[sortedIndex]
+            let next = sorted[sortedIndex + 1]
+            let key = segmentKey(from: current.order, to: next.order)
+            segmentRoutes.removeValue(forKey: key)
+            straightLineFallbacks.remove(key)
+            requestDirectionsDebounced(
+                from: CLLocationCoordinate2D(latitude: current.latitude, longitude: current.longitude),
+                to: CLLocationCoordinate2D(latitude: next.latitude, longitude: next.longitude),
+                key: key
+            )
+        }
+
+        // Recalculate loop segment if applicable
+        if isLoopClosed, let first = sorted.first, let last = sorted.last,
+           (sortedIndex == 0 || sortedIndex == sorted.count - 1) {
+            segmentRoutes.removeValue(forKey: "loop")
+            straightLineFallbacks.remove("loop")
+            requestDirectionsDebounced(
+                from: CLLocationCoordinate2D(latitude: last.latitude, longitude: last.longitude),
+                to: CLLocationCoordinate2D(latitude: first.latitude, longitude: first.longitude),
+                key: "loop"
+            )
+        }
+    }
+
+    /// Remove a waypoint by ID and recalculate surrounding segments.
+    func removeWaypoint(id: UUID) {
+        guard let index = waypoints.firstIndex(where: { $0.id == id }) else { return }
+        guard waypoints.count > 2 else {
+            routeError = "A route needs at least 2 waypoints."
+            return
+        }
+
+        let sorted = waypoints.sorted { $0.order < $1.order }
+        let sortedIndex = sorted.firstIndex(where: { $0.id == id }) ?? 0
+        let removed = sorted[sortedIndex]
+
+        // Remove old segments connected to this waypoint
+        if sortedIndex > 0 {
+            let key = segmentKey(from: sorted[sortedIndex - 1].order, to: removed.order)
+            segmentRoutes.removeValue(forKey: key)
+            straightLineFallbacks.remove(key)
+        }
+        if sortedIndex < sorted.count - 1 {
+            let key = segmentKey(from: removed.order, to: sorted[sortedIndex + 1].order)
+            segmentRoutes.removeValue(forKey: key)
+            straightLineFallbacks.remove(key)
+        }
+
+        waypoints.remove(at: index)
+
+        // Re-number waypoints
+        let resorted = waypoints.sorted { $0.order < $1.order }
+        waypoints = resorted.enumerated().map { i, wp in
+            var updated = wp
+            updated = RouteWaypoint(
+                id: wp.id,
+                latitude: wp.latitude,
+                longitude: wp.longitude,
+                order: i,
+                type: i == 0 ? .start : (i == resorted.count - 1 ? .end : .via)
+            )
+            return updated
+        }
+
+        // Rebuild segment cache for affected connection
+        if sortedIndex > 0 && sortedIndex <= waypoints.count {
+            let newSorted = waypoints.sorted { $0.order < $1.order }
+            let prev = newSorted[sortedIndex - 1]
+            if sortedIndex < newSorted.count {
+                let next = newSorted[sortedIndex]
+                let key = segmentKey(from: prev.order, to: next.order)
+                requestDirectionsDebounced(
+                    from: CLLocationCoordinate2D(latitude: prev.latitude, longitude: prev.longitude),
+                    to: CLLocationCoordinate2D(latitude: next.latitude, longitude: next.longitude),
+                    key: key
+                )
+            }
+        }
+    }
+
+    /// Update the existing route in SwiftData.
+    func updateRoute(_ route: Route) {
+        let paceSecondsPerMeter = 5.5 * 60.0 / 1000.0
+        route.distance = totalDistanceMeters
+        route.estimatedDurationSeconds = totalDistanceMeters * paceSecondsPerMeter
+        route.waypoints = waypoints.sorted { $0.order < $1.order }
+        route.updatedAt = Date()
+    }
+
+    /// Save current waypoints as a new route copy.
+    func saveAsNewRoute(name: String, modelContext: ModelContext) -> Route {
+        let sorted = waypoints.sorted { $0.order < $1.order }
+        let coordinates = sorted.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        let paceSecondsPerMeter = 5.5 * 60.0 / 1000.0
+        let estimatedDuration = totalDistanceMeters * paceSecondsPerMeter
+
+        let routeWaypoints = coordinates.enumerated().map { index, coord in
+            let type: WaypointType
+            if index == 0 {
+                type = .start
+            } else if index == coordinates.count - 1 {
+                type = .end
+            } else {
+                type = .via
+            }
+            return RouteWaypoint(
+                latitude: coord.latitude,
+                longitude: coord.longitude,
+                order: index,
+                type: type
+            )
+        }
+
+        let newRoute = Route(
+            name: name,
+            distance: totalDistanceMeters,
+            estimatedDurationSeconds: estimatedDuration,
+            waypoints: routeWaypoints
+        )
+        modelContext.insert(newRoute)
+        return newRoute
     }
 
     func addWaypoint(at coordinate: CLLocationCoordinate2D) {

@@ -21,6 +21,12 @@ final class RouteCreationViewModel {
     /// True when in edit mode (vs create mode).
     var isEditing: Bool { editingRoute != nil }
 
+    // MARK: - Location Search
+
+    let searchService = LocationSearchService()
+    var isSearchExpanded = false
+    var isResolvingSearch = false
+
     // MARK: - Segment Cache
 
     /// Cached MKRoute for each segment (keyed by "fromOrder-toOrder").
@@ -35,6 +41,9 @@ final class RouteCreationViewModel {
 
     /// Debounce work item for directions requests.
     private var pendingDirectionsWork: DispatchWorkItem?
+
+    /// Debounce work item for elevation requests.
+    private var pendingElevationWork: DispatchWorkItem?
 
     /// Service for fetching elevation data.
     private let elevationService = ElevationService()
@@ -185,6 +194,9 @@ final class RouteCreationViewModel {
         isLoadingElevation = false
         hasModifiedSegments = false
         pendingDirectionsWork?.cancel()
+        pendingElevationWork?.cancel()
+        searchService.clear()
+        isSearchExpanded = false
     }
 
     // MARK: - Edit Mode
@@ -404,6 +416,23 @@ final class RouteCreationViewModel {
         return newRoute
     }
 
+    /// Resolve a search result and add it as a waypoint. Returns the coordinate for map centering.
+    @MainActor
+    func selectSearchResult(_ completion: MKLocalSearchCompletion) async -> CLLocationCoordinate2D? {
+        isResolvingSearch = true
+        defer { isResolvingSearch = false }
+
+        guard let coordinate = await searchService.resolve(completion) else {
+            routeError = "Could not find location."
+            return nil
+        }
+
+        addWaypoint(at: coordinate)
+        searchService.clear()
+        isSearchExpanded = false
+        return coordinate
+    }
+
     func addWaypoint(at coordinate: CLLocationCoordinate2D) {
         guard isCreating, !isLoopClosed else { return }
         hasModifiedSegments = true
@@ -506,6 +535,12 @@ final class RouteCreationViewModel {
 
     // MARK: - Elevation
 
+    var formattedElevation: String {
+        if isLoadingElevation { return "Calculating..." }
+        guard let gain = elevationGain else { return "" }
+        return String(format: "%.0f m gain", gain)
+    }
+
     /// Fetch elevation gain for the current polyline. Call before saving.
     @MainActor
     func fetchElevation() async {
@@ -524,6 +559,19 @@ final class RouteCreationViewModel {
             elevationGain = nil
         }
         isLoadingElevation = false
+    }
+
+    /// Debounced elevation fetch — called after segments finish loading.
+    func fetchElevationDebounced() {
+        pendingElevationWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.fetchElevation()
+            }
+        }
+        pendingElevationWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
     // MARK: - MKDirections
@@ -593,6 +641,7 @@ final class RouteCreationViewModel {
         }
 
         isLoadingSegment = false
+        fetchElevationDebounced()
     }
 }
 

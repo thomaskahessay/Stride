@@ -16,6 +16,7 @@ struct RouteMapView: View {
     @State private var showSaveAsNewPrompt = false
     @State private var saveAsNewName = ""
     @State private var showCancelConfirmation = false
+    @State private var showDiscardAlert = false
 
     private let routeService = RouteService()
 
@@ -60,11 +61,10 @@ struct RouteMapView: View {
                 }
                 .mapStyle(.standard(pointsOfInterest: .excludingAll))
                 .mapControls {
-                    MapCompass()
                     MapScaleView()
                 }
                 .onTapGesture { screenPoint in
-                    guard viewModel.isCreating,
+                    guard viewModel.isCreating, !showInfoPanel,
                           let coordinate = proxy.convert(screenPoint, from: .local) else { return }
                     viewModel.addWaypoint(at: coordinate)
                 }
@@ -113,16 +113,52 @@ struct RouteMapView: View {
                 }
             }
             .padding(.trailing, .strideMD)
-            .padding(.top, .strideSM)
+            .padding(.top, viewModel.isCreating ? 60 : .strideSM)
         }
         .overlay(alignment: .top) {
-            if locationManager.isDenied {
+            if viewModel.isCreating {
+                addressSearchOverlay
+            }
+        }
+        .overlay(alignment: .top) {
+            if locationManager.isDenied && !viewModel.isCreating {
                 locationDeniedBanner
             }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: viewModel.waypoints.count)
         .navigationTitle(viewModel.isEditing ? "Edit Route" : "Routes")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(viewModel.isCreating)
+        .toolbar {
+            if viewModel.isCreating {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        if viewModel.waypoints.isEmpty {
+                            viewModel.stopCreating()
+                            dismiss()
+                        } else {
+                            showDiscardAlert = true
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("Back")
+                        }
+                    }
+                }
+            }
+        }
+        .alert("Discard Route?", isPresented: $showDiscardAlert) {
+            Button("Discard", role: .destructive) {
+                showInfoPanel = false
+                viewModel.stopCreating()
+                dismiss()
+            }
+            Button("Keep Editing", role: .cancel) {}
+        } message: {
+            Text("You have an unsaved route in progress. Going back will discard it.")
+        }
         .sheet(isPresented: $showInfoPanel) {
             RouteInfoPanel(
                 distanceMeters: viewModel.totalDistanceMeters,
@@ -175,18 +211,30 @@ struct RouteMapView: View {
 
     private var creationControls: some View {
         VStack(spacing: .strideSM) {
-            // Distance display
+            // Distance & elevation display
             if !viewModel.waypoints.isEmpty {
-                HStack(spacing: .strideSM) {
-                    Text(viewModel.formattedDistance)
-                        .font(Font.stride.headingMedium)
-                        .foregroundStyle(Color.stride.lavenderDeep)
-                        .contentTransition(.numericText())
+                VStack(spacing: 4) {
+                    HStack(spacing: .strideSM) {
+                        Text(viewModel.formattedDistance)
+                            .font(Font.stride.headingMedium)
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                            .contentTransition(.numericText())
 
-                    if viewModel.isLoadingSegment {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(Color.stride.lavenderDeep)
+                        if viewModel.isLoadingSegment {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(Color.stride.lavenderDeep)
+                        }
+                    }
+
+                    if !viewModel.formattedElevation.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "mountain.2")
+                                .font(.system(size: 11))
+                            Text(viewModel.formattedElevation)
+                        }
+                        .font(Font.stride.caption)
+                        .foregroundStyle(Color.stride.lavenderDeep.opacity(0.8))
                     }
                 }
             }
@@ -305,17 +353,29 @@ struct RouteMapView: View {
 
     private var editControls: some View {
         VStack(spacing: .strideSM) {
-            // Distance display
-            HStack(spacing: .strideSM) {
-                Text(viewModel.formattedDistance)
-                    .font(Font.stride.headingMedium)
-                    .foregroundStyle(Color.stride.lavenderDeep)
-                    .contentTransition(.numericText())
+            // Distance & elevation display
+            VStack(spacing: 4) {
+                HStack(spacing: .strideSM) {
+                    Text(viewModel.formattedDistance)
+                        .font(Font.stride.headingMedium)
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                        .contentTransition(.numericText())
 
-                if viewModel.isLoadingSegment {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Color.stride.lavenderDeep)
+                    if viewModel.isLoadingSegment {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(Color.stride.lavenderDeep)
+                    }
+                }
+
+                if !viewModel.formattedElevation.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "mountain.2")
+                            .font(.system(size: 11))
+                        Text(viewModel.formattedElevation)
+                    }
+                    .font(Font.stride.caption)
+                    .foregroundStyle(Color.stride.lavenderDeep.opacity(0.8))
                 }
             }
 
@@ -511,6 +571,108 @@ struct RouteMapView: View {
             }
             dismiss()
         }
+    }
+
+    // MARK: - Address Search Overlay
+
+    private var addressSearchOverlay: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: .strideSM) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .font(.system(size: 14, weight: .medium))
+
+                TextField("Search address or place", text: Binding(
+                    get: { viewModel.searchService.searchText },
+                    set: { viewModel.searchService.updateSearch($0) }
+                ))
+                .font(Font.stride.bodyMedium)
+                .textFieldStyle(.plain)
+                .autocorrectionDisabled()
+
+                if !viewModel.searchService.searchText.isEmpty {
+                    Button {
+                        viewModel.searchService.clear()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 16))
+                    }
+                }
+
+                if viewModel.isResolvingSearch {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.stride.lavenderDeep)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.1), radius: 6, x: 0, y: 2)
+
+            // Results list
+            if !viewModel.searchService.results.isEmpty {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(viewModel.searchService.results, id: \.self) { result in
+                            Button {
+                                Task {
+                                    if let coord = await viewModel.selectSearchResult(result) {
+                                        withAnimation {
+                                            cameraPosition = .region(
+                                                MKCoordinateRegion(
+                                                    center: coord,
+                                                    latitudinalMeters: 1000,
+                                                    longitudinalMeters: 1000
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(result.title)
+                                        .font(Font.stride.bodyMedium)
+                                        .foregroundStyle(.primary)
+                                    if !result.subtitle.isEmpty {
+                                        Text(result.subtitle)
+                                            .font(Font.stride.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+
+                            if result != viewModel.searchService.results.last {
+                                Divider()
+                                    .padding(.leading, 12)
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 200)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.1), radius: 6, x: 0, y: 2)
+                .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, .strideMD)
+        .padding(.top, .strideSM)
+        .contentShape(Rectangle())
+        .onTapGesture { } // Consume taps so they don't pass through to the map
     }
 
     // MARK: - Save Confirmation Overlay

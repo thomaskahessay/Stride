@@ -8,9 +8,13 @@ struct SavedRoutesView: View {
     @Query(sort: \Route.updatedAt, order: .reverse) private var routes: [Route]
     @State private var viewModel = SavedRoutesViewModel()
 
+    private var locationManager: LocationManager { LocationManager.shared }
+
     var body: some View {
         Group {
-            if routes.isEmpty {
+            if locationManager.isDenied {
+                locationDeniedState
+            } else if routes.isEmpty {
                 emptyState
             } else {
                 routeList
@@ -29,7 +33,9 @@ struct SavedRoutesView: View {
                     Image(systemName: "plus")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color.stride.lavenderDeep)
+                        .accessibilityLabel("Create new route")
                 }
+                .disabled(locationManager.isDenied)
             }
         }
         .alert("Delete Route?", isPresented: $viewModel.showDeleteConfirmation) {
@@ -152,6 +158,41 @@ struct SavedRoutesView: View {
                 .font(Font.stride.bodyMedium)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+        }
+        .padding(.strideLG)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LinearGradient.strideBackground.ignoresSafeArea())
+    }
+
+    // MARK: - Location Denied State
+
+    private var locationDeniedState: some View {
+        VStack(spacing: .strideMD) {
+            Image(systemName: "location.slash.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(Color.stride.coral.opacity(0.6))
+
+            Text("Location Access Required")
+                .font(Font.stride.headingSmall)
+
+            Text("Stride needs location access to plan running routes. Enable it in Settings to get started.")
+                .font(Font.stride.bodyMedium)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "gear")
+                    Text("Open Settings")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(StridePrimaryButtonStyle())
+            .padding(.horizontal, .strideXL)
         }
         .padding(.strideLG)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

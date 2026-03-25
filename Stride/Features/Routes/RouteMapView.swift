@@ -17,6 +17,7 @@ struct RouteMapView: View {
     @State private var saveAsNewName = ""
     @State private var showCancelConfirmation = false
     @State private var showDiscardAlert = false
+    @FocusState private var isSearchFocused: Bool
 
     private let routeService = RouteService()
 
@@ -62,6 +63,7 @@ struct RouteMapView: View {
                 .mapStyle(.standard(pointsOfInterest: .excludingAll))
                 .mapControls {
                     MapScaleView()
+                    MapCompass()
                 }
                 .onTapGesture { screenPoint in
                     guard viewModel.isCreating, !showInfoPanel,
@@ -113,7 +115,7 @@ struct RouteMapView: View {
                 }
             }
             .padding(.trailing, .strideMD)
-            .padding(.top, viewModel.isCreating ? 60 : .strideSM)
+            .padding(.top, viewModel.isCreating ? 60 : 72)
         }
         .overlay(alignment: .top) {
             if viewModel.isCreating {
@@ -121,11 +123,12 @@ struct RouteMapView: View {
             }
         }
         .overlay(alignment: .top) {
-            if locationManager.isDenied && !viewModel.isCreating {
+            if locationManager.isDenied {
                 locationDeniedBanner
             }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: viewModel.waypoints.count)
+        .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isLoopClosed)
         .navigationTitle(viewModel.isEditing ? "Edit Route" : "Routes")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(viewModel.isCreating)
@@ -205,6 +208,7 @@ struct RouteMapView: View {
                 .clipShape(Circle())
                 .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
         }
+        .accessibilityLabel(viewModel.isCreating ? "Stop creating route" : "Create new route")
     }
 
     // MARK: - Creation Controls
@@ -347,6 +351,7 @@ struct RouteMapView: View {
                 .clipShape(Circle())
                 .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
         }
+        .accessibilityLabel("Recentre map on your location")
     }
 
     // MARK: - Edit Controls
@@ -586,6 +591,7 @@ struct RouteMapView: View {
                     get: { viewModel.searchService.searchText },
                     set: { viewModel.searchService.updateSearch($0) }
                 ))
+                .focused($isSearchFocused)
                 .font(Font.stride.bodyMedium)
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
@@ -622,6 +628,7 @@ struct RouteMapView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(viewModel.searchService.results, id: \.self) { result in
                             Button {
+                                isSearchFocused = false
                                 Task {
                                     if let coord = await viewModel.selectSearchResult(result) {
                                         withAnimation {
@@ -700,6 +707,14 @@ struct RouteMapView: View {
                 .foregroundStyle(Color.stride.coral)
             Text(locationManager.locationError ?? "Location access denied.")
                 .font(Font.stride.bodyMedium)
+            Spacer()
+            Button("Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .font(Font.stride.bodyMedium.weight(.semibold))
+            .foregroundStyle(Color.stride.lavenderDeep)
         }
         .padding(.strideMD)
         .frame(maxWidth: .infinity)
@@ -727,6 +742,7 @@ private struct WaypointMarker: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(.white)
         }
+        .accessibilityLabel("Waypoint \(order + 1)\(isStart ? ", start point" : "")")
     }
 }
 
@@ -747,6 +763,7 @@ private struct DraggableWaypointMarker: View {
             .scaleEffect(isDragging ? 1.3 : 1.0)
             .opacity(isDragging ? 0.8 : 1.0)
             .offset(dragOffset)
+            .accessibilityHint(isDraggingEnabled ? "Drag to reposition. Long press for options." : "")
             .gesture(
                 isDraggingEnabled
                 ? DragGesture()

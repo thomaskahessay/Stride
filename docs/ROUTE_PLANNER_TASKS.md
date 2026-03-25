@@ -380,13 +380,13 @@ Test the full flow end-to-end: create → save → list → detail → edit → 
 - [x] Can tap into route detail view (road-snapped polylines displayed)
 - [x] Can edit an existing route (drag waypoints, add/remove)
 - [x] Road-snapped polylines persist and restore on save/edit (polylineData + segmentPolylinesData)
-- [ ] Live position shows when viewing a route
-- [ ] Basic "Start Run" mode with distance tracking
-- [ ] Empty states and error handling are in place
+- [x] Live position shows when viewing a route
+- [x] Basic "Start Run" mode with distance tracking
+- [x] Empty states and error handling are in place
 - [x] No crashes on the happy path
 - [x] All ViewModels use @Observable (not ObservableObject)
 - [x] All colours use Color.stride.* tokens
-- [ ] No third-party dependencies added
+- [x] No third-party dependencies added (Open Elevation API is a network call, not an SPM package)
 
 ---
 

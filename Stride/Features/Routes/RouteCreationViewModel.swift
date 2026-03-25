@@ -86,7 +86,15 @@ final class RouteCreationViewModel {
 
     // MARK: - Computed — Distance
 
+    /// True when the user has not yet modified any segments since loading.
+    private var hasModifiedSegments = false
+
     var totalDistanceMeters: Double {
+        // If editing and nothing has changed, use the exact saved distance.
+        if let saved = editingRoute?.distance, !hasModifiedSegments {
+            return saved
+        }
+
         let sorted = waypoints.sorted { $0.order < $1.order }
         guard sorted.count >= 2 else { return 0 }
 
@@ -96,6 +104,8 @@ final class RouteCreationViewModel {
             let key = segmentKey(from: sorted[i - 1].order, to: sorted[i].order)
             if let route = segmentRoutes[key] {
                 total += route.distance
+            } else if let restored = restoredSegmentPolylines[key], restored.count >= 2 {
+                total += distanceAlongCoordinates(restored)
             } else {
                 let from = CLLocation(latitude: sorted[i - 1].latitude, longitude: sorted[i - 1].longitude)
                 let to = CLLocation(latitude: sorted[i].latitude, longitude: sorted[i].longitude)
@@ -106,6 +116,8 @@ final class RouteCreationViewModel {
         if isLoopClosed, let first = sorted.first, let last = sorted.last {
             if let route = segmentRoutes["loop"] {
                 total += route.distance
+            } else if let restored = restoredSegmentPolylines["loop"], restored.count >= 2 {
+                total += distanceAlongCoordinates(restored)
             } else {
                 let from = CLLocation(latitude: last.latitude, longitude: last.longitude)
                 let to = CLLocation(latitude: first.latitude, longitude: first.longitude)
@@ -113,6 +125,17 @@ final class RouteCreationViewModel {
             }
         }
 
+        return total
+    }
+
+    /// Sum the distance along a sequence of coordinates (road-snapped polyline).
+    private func distanceAlongCoordinates(_ coords: [CLLocationCoordinate2D]) -> Double {
+        var total: Double = 0
+        for i in 1..<coords.count {
+            let from = CLLocation(latitude: coords[i - 1].latitude, longitude: coords[i - 1].longitude)
+            let to = CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude)
+            total += from.distance(from: to)
+        }
         return total
     }
 
@@ -147,6 +170,7 @@ final class RouteCreationViewModel {
         routeError = nil
         elevationGain = nil
         isLoadingElevation = false
+        hasModifiedSegments = false
     }
 
     func stopCreating() {
@@ -159,6 +183,7 @@ final class RouteCreationViewModel {
         routeError = nil
         elevationGain = nil
         isLoadingElevation = false
+        hasModifiedSegments = false
         pendingDirectionsWork?.cancel()
     }
 
@@ -209,6 +234,7 @@ final class RouteCreationViewModel {
     /// Move a waypoint to a new position and recalculate affected segments.
     func moveWaypoint(id: UUID, to coordinate: CLLocationCoordinate2D) {
         guard let index = waypoints.firstIndex(where: { $0.id == id }) else { return }
+        hasModifiedSegments = true
 
         waypoints[index] = RouteWaypoint(
             id: waypoints[index].id,
@@ -268,6 +294,7 @@ final class RouteCreationViewModel {
     /// Remove a waypoint by ID and recalculate surrounding segments.
     func removeWaypoint(id: UUID) {
         guard let index = waypoints.firstIndex(where: { $0.id == id }) else { return }
+        hasModifiedSegments = true
         guard waypoints.count > 2 else {
             routeError = "A route needs at least 2 waypoints."
             return
@@ -379,6 +406,7 @@ final class RouteCreationViewModel {
 
     func addWaypoint(at coordinate: CLLocationCoordinate2D) {
         guard isCreating, !isLoopClosed else { return }
+        hasModifiedSegments = true
         let type: WaypointType = waypoints.isEmpty ? .start : .via
         let waypoint = RouteWaypoint(
             latitude: coordinate.latitude,
@@ -431,6 +459,7 @@ final class RouteCreationViewModel {
 
     func closeLoop() {
         guard canCloseLoop else { return }
+        hasModifiedSegments = true
         isLoopClosed = true
 
         guard let first = waypoints.first, let last = waypoints.last else { return }

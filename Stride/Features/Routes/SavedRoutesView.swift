@@ -51,7 +51,12 @@ struct SavedRoutesView: View {
     private var routeList: some View {
         List {
             ForEach(routes) { route in
-                NavigationLink(value: route) {
+                ZStack {
+                    NavigationLink(value: route) {
+                        EmptyView()
+                    }
+                    .opacity(0)
+
                     routeRow(route)
                 }
                 .listRowBackground(Color.clear)
@@ -96,7 +101,7 @@ struct SavedRoutesView: View {
 
     private func routeRow(_ route: Route) -> some View {
         HStack(spacing: .strideMD) {
-            RouteThumbnail(waypoints: route.waypoints)
+            RouteThumbnail(waypoints: route.waypoints, polyline: route.polylineCoordinates, isLoop: route.isLoop)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(route.name)
@@ -129,14 +134,7 @@ struct SavedRoutesView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.tertiary)
         }
-        .padding(.strideMD)
-        .background(.ultraThinMaterial)
-        .background(LinearGradient.glassOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: .strideRadiusLG, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: .strideRadiusLG, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
-        )
+        .glassCard()
     }
 
     // MARK: - Empty State

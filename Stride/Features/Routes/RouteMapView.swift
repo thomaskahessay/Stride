@@ -70,6 +70,7 @@ struct RouteMapView: View {
                 }
             }
             .onAppear {
+                locationManager.requestAuthorisation()
                 locationManager.startTracking()
                 if let editingRoute, !viewModel.isEditing {
                     viewModel.loadRoute(editingRoute)
@@ -133,6 +134,7 @@ struct RouteMapView: View {
             .presentationDetents([.fraction(0.3), .medium])
             .presentationDragIndicator(.hidden)
             .presentationBackgroundInteraction(.enabled(upThrough: .fraction(0.3)))
+            .presentationBackground(.ultraThinMaterial)
         }
         .sensoryFeedback(.success, trigger: showSaveConfirmation)
         .overlay {
@@ -262,7 +264,7 @@ struct RouteMapView: View {
                 Text(label)
                     .font(Font.stride.caption)
             }
-            .foregroundStyle(disabled ? .tertiary : Color.stride.lavenderDeep)
+            .foregroundStyle(disabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.stride.lavenderDeep))
             .frame(maxWidth: .infinity)
             .padding(.vertical, .strideSM)
         }
@@ -357,6 +359,7 @@ struct RouteMapView: View {
                     showCancelConfirmation = true
                 }
                 .ghostStyle()
+                .frame(maxWidth: .infinity, maxHeight: 48)
 
                 Button("Save as New") {
                     let formatter = DateFormatter()
@@ -365,11 +368,13 @@ struct RouteMapView: View {
                     showSaveAsNewPrompt = true
                 }
                 .secondaryStyle()
+                .frame(maxWidth: .infinity, maxHeight: 48)
 
                 Button("Save") {
                     saveEditedRoute()
                 }
                 .primaryStyle()
+                .frame(maxWidth: .infinity, maxHeight: 48)
             }
         }
         .padding(.strideMD)
@@ -466,13 +471,18 @@ struct RouteMapView: View {
         let paceSecondsPerMeter = 5.5 * 60.0 / 1000.0
         let estimatedDuration = viewModel.totalDistanceMeters * paceSecondsPerMeter
 
-        _ = routeService.saveRoute(
+        let route = routeService.saveRoute(
             name: name,
             waypoints: coordinates,
             distance: viewModel.totalDistanceMeters,
             estimatedDuration: estimatedDuration,
+            isLoop: viewModel.isLoopClosed,
             modelContext: modelContext
         )
+        route.polylineCoordinates = viewModel.flatPolylineCoordinates.map {
+            PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+        }
+        route.segmentPolylines = viewModel.currentSegmentPolylines
 
         showInfoPanel = false
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {

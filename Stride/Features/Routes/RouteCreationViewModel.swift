@@ -28,6 +28,9 @@ final class RouteCreationViewModel {
     /// Tracks whether a segment fell back to straight-line.
     private var straightLineFallbacks: Set<String> = []
 
+    /// Cached polyline coordinates restored from a saved route (used until MKDirections replaces them).
+    private var restoredSegmentPolylines: [String: [CLLocationCoordinate2D]] = [:]
+
     /// Debounce work item for directions requests.
     private var pendingDirectionsWork: DispatchWorkItem?
 
@@ -45,6 +48,8 @@ final class RouteCreationViewModel {
             let key = segmentKey(from: sorted[i - 1].order, to: sorted[i].order)
             if let route = segmentRoutes[key] {
                 segments.append(route.polyline.coordinates)
+            } else if let restored = restoredSegmentPolylines[key] {
+                segments.append(restored)
             } else {
                 // Straight-line fallback
                 let from = CLLocationCoordinate2D(latitude: sorted[i - 1].latitude, longitude: sorted[i - 1].longitude)
@@ -57,6 +62,8 @@ final class RouteCreationViewModel {
             let key = "loop"
             if let route = segmentRoutes[key] {
                 segments.append(route.polyline.coordinates)
+            } else if let restored = restoredSegmentPolylines[key] {
+                segments.append(restored)
             } else {
                 let from = CLLocationCoordinate2D(latitude: last.latitude, longitude: last.longitude)
                 let to = CLLocationCoordinate2D(latitude: first.latitude, longitude: first.longitude)
@@ -152,23 +159,41 @@ final class RouteCreationViewModel {
     func loadRoute(_ route: Route) {
         editingRoute = route
         isCreating = true
-        isLoopClosed = false
+        isLoopClosed = route.isLoop
         segmentRoutes = [:]
-        straightLineFallbacks = [:]
+        straightLineFallbacks = []
+        restoredSegmentPolylines = [:]
         routeError = nil
 
         waypoints = route.waypoints.sorted { $0.order < $1.order }
 
-        // Request directions for all consecutive segments
-        for i in 1..<waypoints.count {
-            let from = waypoints[i - 1]
-            let to = waypoints[i]
-            let key = segmentKey(from: from.order, to: to.order)
-            requestDirectionsDebounced(
-                from: CLLocationCoordinate2D(latitude: from.latitude, longitude: from.longitude),
-                to: CLLocationCoordinate2D(latitude: to.latitude, longitude: to.longitude),
-                key: key
-            )
+        // Restore saved segment polylines if available
+        let savedSegments = route.segmentPolylines
+        if !savedSegments.isEmpty {
+            for (key, coords) in savedSegments {
+                restoredSegmentPolylines[key] = coords.map {
+                    CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                }
+            }
+        } else {
+            // Fallback: re-request directions if no saved segments
+            for i in 1..<waypoints.count {
+                let from = waypoints[i - 1]
+                let to = waypoints[i]
+                let key = segmentKey(from: from.order, to: to.order)
+                requestDirectionsDebounced(
+                    from: CLLocationCoordinate2D(latitude: from.latitude, longitude: from.longitude),
+                    to: CLLocationCoordinate2D(latitude: to.latitude, longitude: to.longitude),
+                    key: key
+                )
+            }
+            if isLoopClosed, let first = waypoints.first, let last = waypoints.last {
+                requestDirectionsDebounced(
+                    from: CLLocationCoordinate2D(latitude: last.latitude, longitude: last.longitude),
+                    to: CLLocationCoordinate2D(latitude: first.latitude, longitude: first.longitude),
+                    key: "loop"
+                )
+            }
         }
     }
 
@@ -193,6 +218,7 @@ final class RouteCreationViewModel {
             let current = sorted[sortedIndex]
             let key = segmentKey(from: prev.order, to: current.order)
             segmentRoutes.removeValue(forKey: key)
+            restoredSegmentPolylines.removeValue(forKey: key)
             straightLineFallbacks.remove(key)
             requestDirectionsDebounced(
                 from: CLLocationCoordinate2D(latitude: prev.latitude, longitude: prev.longitude),
@@ -207,6 +233,7 @@ final class RouteCreationViewModel {
             let next = sorted[sortedIndex + 1]
             let key = segmentKey(from: current.order, to: next.order)
             segmentRoutes.removeValue(forKey: key)
+            restoredSegmentPolylines.removeValue(forKey: key)
             straightLineFallbacks.remove(key)
             requestDirectionsDebounced(
                 from: CLLocationCoordinate2D(latitude: current.latitude, longitude: current.longitude),
@@ -219,6 +246,7 @@ final class RouteCreationViewModel {
         if isLoopClosed, let first = sorted.first, let last = sorted.last,
            (sortedIndex == 0 || sortedIndex == sorted.count - 1) {
             segmentRoutes.removeValue(forKey: "loop")
+            restoredSegmentPolylines.removeValue(forKey: "loop")
             straightLineFallbacks.remove("loop")
             requestDirectionsDebounced(
                 from: CLLocationCoordinate2D(latitude: last.latitude, longitude: last.longitude),
@@ -244,11 +272,13 @@ final class RouteCreationViewModel {
         if sortedIndex > 0 {
             let key = segmentKey(from: sorted[sortedIndex - 1].order, to: removed.order)
             segmentRoutes.removeValue(forKey: key)
+            restoredSegmentPolylines.removeValue(forKey: key)
             straightLineFallbacks.remove(key)
         }
         if sortedIndex < sorted.count - 1 {
             let key = segmentKey(from: removed.order, to: sorted[sortedIndex + 1].order)
             segmentRoutes.removeValue(forKey: key)
+            restoredSegmentPolylines.removeValue(forKey: key)
             straightLineFallbacks.remove(key)
         }
 
@@ -289,7 +319,12 @@ final class RouteCreationViewModel {
         let paceSecondsPerMeter = 5.5 * 60.0 / 1000.0
         route.distance = totalDistanceMeters
         route.estimatedDurationSeconds = totalDistanceMeters * paceSecondsPerMeter
+        route.isLoop = isLoopClosed
         route.waypoints = waypoints.sorted { $0.order < $1.order }
+        route.polylineCoordinates = flatPolylineCoordinates.map {
+            PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+        }
+        route.segmentPolylines = currentSegmentPolylines
         route.updatedAt = Date()
     }
 
@@ -304,7 +339,7 @@ final class RouteCreationViewModel {
             let type: WaypointType
             if index == 0 {
                 type = .start
-            } else if index == coordinates.count - 1 {
+            } else if index == coordinates.count - 1 && !isLoopClosed {
                 type = .end
             } else {
                 type = .via
@@ -317,12 +352,18 @@ final class RouteCreationViewModel {
             )
         }
 
+        let polyline = flatPolylineCoordinates.map {
+            PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+        }
         let newRoute = Route(
             name: name,
             distance: totalDistanceMeters,
             estimatedDurationSeconds: estimatedDuration,
-            waypoints: routeWaypoints
+            waypoints: routeWaypoints,
+            isLoop: isLoopClosed
         )
+        newRoute.polylineCoordinates = polyline
+        newRoute.segmentPolylines = currentSegmentPolylines
         modelContext.insert(newRoute)
         return newRoute
     }
@@ -389,6 +430,40 @@ final class RouteCreationViewModel {
             to: CLLocationCoordinate2D(latitude: first.latitude, longitude: first.longitude),
             key: "loop"
         )
+    }
+
+    /// Builds a dictionary of segment polylines from current state for persistence.
+    var currentSegmentPolylines: [String: [PolylineCoordinate]] {
+        let sorted = waypoints.sorted { $0.order < $1.order }
+        var result: [String: [PolylineCoordinate]] = [:]
+
+        for i in 1..<sorted.count {
+            let key = segmentKey(from: sorted[i - 1].order, to: sorted[i].order)
+            if let route = segmentRoutes[key] {
+                result[key] = route.polyline.coordinates.map {
+                    PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+                }
+            } else if let restored = restoredSegmentPolylines[key] {
+                result[key] = restored.map {
+                    PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+                }
+            }
+        }
+
+        if isLoopClosed {
+            let key = "loop"
+            if let route = segmentRoutes[key] {
+                result[key] = route.polyline.coordinates.map {
+                    PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+                }
+            } else if let restored = restoredSegmentPolylines[key] {
+                result[key] = restored.map {
+                    PolylineCoordinate(latitude: $0.latitude, longitude: $0.longitude)
+                }
+            }
+        }
+
+        return result
     }
 
     // MARK: - MKDirections

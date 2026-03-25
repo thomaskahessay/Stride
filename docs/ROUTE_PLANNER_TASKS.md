@@ -366,25 +366,26 @@ Test the full flow end-to-end: create → save → list → detail → edit → 
 
 ## Phase 1 Complete Checklist
 
-- [ ] Location permission granted and tracking works on physical device
-- [ ] Map displays on the Routes tab with user location
-- [ ] Can tap to place waypoints in creation mode
-- [ ] Polyline follows actual roads (MKDirections snapping)
-- [ ] Distance calculates correctly (respects user's unit preference)
-- [ ] Can undo / clear waypoints
-- [ ] Can close loop back to start
-- [ ] Route info panel shows distance and estimated time
-- [ ] Routes save to SwiftData and persist across app launches
-- [ ] Route.self registered in ModelContainer in StrideApp.swift
-- [ ] Saved routes list displays with thumbnails
-- [ ] Can tap into route detail view
-- [ ] Can edit an existing route (drag waypoints, add/remove)
+- [x] Location permission granted and tracking works on physical device
+- [x] Map displays on the Routes tab with user location
+- [x] Can tap to place waypoints in creation mode
+- [x] Polyline follows actual roads (MKDirections snapping)
+- [x] Distance calculates correctly (respects user's unit preference)
+- [x] Can undo / clear waypoints
+- [x] Can close loop back to start (isLoop persisted on Route model)
+- [x] Route info panel shows distance and estimated time
+- [x] Routes save to SwiftData and persist across app launches
+- [x] Route.self registered in ModelContainer in StrideApp.swift
+- [x] Saved routes list displays with thumbnails (road-snapped polylines)
+- [x] Can tap into route detail view (road-snapped polylines displayed)
+- [x] Can edit an existing route (drag waypoints, add/remove)
+- [x] Road-snapped polylines persist and restore on save/edit (polylineData + segmentPolylinesData)
 - [ ] Live position shows when viewing a route
 - [ ] Basic "Start Run" mode with distance tracking
 - [ ] Empty states and error handling are in place
-- [ ] No crashes on the happy path
-- [ ] All ViewModels use @Observable (not ObservableObject)
-- [ ] All colours use Color.stride.* tokens
+- [x] No crashes on the happy path
+- [x] All ViewModels use @Observable (not ObservableObject)
+- [x] All colours use Color.stride.* tokens
 - [ ] No third-party dependencies added
 
 ---

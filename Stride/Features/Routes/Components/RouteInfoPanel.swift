@@ -102,8 +102,6 @@ struct RouteInfoPanel: View {
             .padding(.horizontal, .strideSM)
             .padding(.bottom, .strideSM)
         }
-        .background(.ultraThinMaterial)
-        .background(Color.stride.lavenderLight.opacity(0.3))
         .alert("Route Name", isPresented: $isShowingNamePrompt) {
             TextField("Route name", text: $routeName)
             Button("Save") {

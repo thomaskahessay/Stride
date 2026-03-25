@@ -12,9 +12,18 @@ struct RouteDetailView: View {
     @State private var showShareToast = false
 
     private var coordinates: [CLLocationCoordinate2D] {
-        route.waypoints
-            .sorted { $0.order < $1.order }
-            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        // Use saved road-snapped polyline if available
+        let polyline = route.polylineCoordinates
+        if !polyline.isEmpty {
+            return polyline.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        }
+        // Fallback to straight lines between waypoints
+        let sorted = route.waypoints.sorted { $0.order < $1.order }
+        var coords = sorted.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        if route.isLoop, let first = coords.first {
+            coords.append(first)
+        }
+        return coords
     }
 
     var body: some View {
@@ -165,7 +174,7 @@ struct RouteDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .primaryStyle()
+            .buttonStyle(StridePrimaryButtonStyle())
 
             Button {
                 showShareToast = true

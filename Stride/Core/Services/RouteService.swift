@@ -9,13 +9,14 @@ final class RouteService {
         waypoints: [CLLocationCoordinate2D],
         distance: Double,
         estimatedDuration: Double,
+        isLoop: Bool = false,
         modelContext: ModelContext
     ) -> Route {
         let routeWaypoints = waypoints.enumerated().map { index, coord in
             let type: WaypointType
             if index == 0 {
                 type = .start
-            } else if index == waypoints.count - 1 {
+            } else if index == waypoints.count - 1 && !isLoop {
                 type = .end
             } else {
                 type = .via
@@ -32,7 +33,8 @@ final class RouteService {
             name: name,
             distance: distance,
             estimatedDurationSeconds: estimatedDuration,
-            waypoints: routeWaypoints
+            waypoints: routeWaypoints,
+            isLoop: isLoop
         )
         modelContext.insert(route)
         return route

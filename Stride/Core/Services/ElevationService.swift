@@ -75,7 +75,9 @@ final class ElevationService {
     private func queryElevations(
         for coordinates: [CLLocationCoordinate2D]
     ) async throws -> [Double] {
-        let url = URL(string: "https://api.open-elevation.com/api/v1/lookup")!
+        guard let url = URL(string: "https://api.open-elevation.com/api/v1/lookup") else {
+            throw ElevationError.invalidURL
+        }
 
         let body = OpenElevationRequest(
             locations: coordinates.map {
@@ -128,6 +130,7 @@ final class ElevationService {
 enum ElevationError: LocalizedError {
     case apiError
     case insufficientPoints
+    case invalidURL
 
     var errorDescription: String? {
         switch self {
@@ -135,6 +138,8 @@ enum ElevationError: LocalizedError {
             return "Unable to fetch elevation data. Please try again."
         case .insufficientPoints:
             return "Not enough points to calculate elevation."
+        case .invalidURL:
+            return "Invalid elevation API URL."
         }
     }
 }

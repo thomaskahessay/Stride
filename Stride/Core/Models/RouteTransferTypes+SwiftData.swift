@@ -28,6 +28,7 @@ extension RouteTransferData {
         )
         route.polylineCoordinates = polylineCoordinates
         route.segmentPolylines = segmentPolylines
+        route.createdAt = createdAt
         return route
     }
 }

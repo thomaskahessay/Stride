@@ -705,7 +705,7 @@ final class WorkoutLog {
     var actualWorkoutType: WorkoutType? // nil = matched planned type; set when user overrides
     var strengthCompleted: Bool // true when user also completed strength on this day
     var runVenue: RunVenue? // nil = legacy log (pre-venue tracking) or non-run
-    @Relationship var route: Route? // optional route used for this run
+    @Relationship(deleteRule: .nullify) var route: Route? // optional route used for this run
 
     init(
         actualDistanceMiles: Double = 0,

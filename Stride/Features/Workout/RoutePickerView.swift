@@ -5,12 +5,10 @@ struct RoutePickerView: View {
     let targetDistanceMiles: Double
     @Binding var selectedRoute: Route?
 
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Route.updatedAt, order: .reverse) private var allRoutes: [Route]
 
     @State private var searchText = ""
-    @State private var showAllRoutes = false
 
     /// Routes whose distance is within ~25% of the target workout distance.
     private var suggestedRoutes: [Route] {

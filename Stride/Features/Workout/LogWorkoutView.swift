@@ -267,7 +267,7 @@ struct LogWorkoutView: View {
 
                 // Route attachment (outdoor only, when venue is outdoor and routes exist)
                 if !savedRoutes.isEmpty || selectedRoute != nil {
-                    if selectedVenue == .outdoor && !isRestDayLog || (isRestDayLog && restDayActivityType.countsTowardRunningVolume && selectedVenue == .outdoor) {
+                    if selectedVenue == .outdoor && (!isRestDayLog || (isRestDayLog && restDayActivityType.countsTowardRunningVolume)) {
                         routeAttachmentCard
                     }
                 }

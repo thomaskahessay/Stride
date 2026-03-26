@@ -30,9 +30,6 @@ final class GPXParser: NSObject, XMLParserDelegate {
     }
 
     func parse(url: URL) throws -> RouteTransferData {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-
         let data = try Data(contentsOf: url)
         return try parse(data: data)
     }

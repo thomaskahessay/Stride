@@ -22,6 +22,19 @@ struct WorkoutDetailView: View {
                         if workout.isCompleted, let log = workout.log {
                             // Completed: actual stats as hero, then planned below
                             actualStatsRow(log: log)
+
+                            // Route map (if a route was attached to this log)
+                            if let route = log.route {
+                                NavigationLink {
+                                    RouteDetailView(route: route, unitSystem: units)
+                                } label: {
+                                    routeCard(route: route, venue: log.runVenue)
+                                }
+                                .buttonStyle(.plain)
+                            } else if let venue = log.runVenue {
+                                venueLabel(venue: venue)
+                            }
+
                             plannedStatsSection
                         } else if workout.workoutType.isRun {
                             // Not completed: planned stats as hero
@@ -337,6 +350,88 @@ struct WorkoutDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Route Card
+
+    private func routeCard(route: Route, venue: RunVenue?) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                HStack(spacing: 6) {
+                    Image(systemName: "map.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.stride.lavenderDeep)
+                    Text("Route")
+                        .font(Font.stride.headingSmall)
+
+                    Spacer()
+
+                    if let venue {
+                        HStack(spacing: 4) {
+                            Image(systemName: venue.sfSymbol)
+                                .font(.system(size: 10))
+                            Text(venue.rawValue)
+                                .font(Font.stride.caption)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack(spacing: .strideSM) {
+                    RouteThumbnail(
+                        waypoints: route.waypoints,
+                        polyline: route.polylineCoordinates,
+                        isLoop: route.isLoop,
+                        size: 64
+                    )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(route.name)
+                            .font(Font.stride.bodyMedium.weight(.semibold))
+                            .lineLimit(1)
+
+                        HStack(spacing: 8) {
+                            Text(String(format: "%.1f km", route.distance / 1000))
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+
+                            if route.isLoop {
+                                Label("Loop", systemImage: "arrow.triangle.capsulepath")
+                                    .font(Font.stride.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if let elevation = route.elevationGain {
+                                Label(
+                                    String(format: "%.0fm", elevation),
+                                    systemImage: "arrow.up.right"
+                                )
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func venueLabel(venue: RunVenue) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: venue.sfSymbol)
+                .font(.system(size: 12))
+            Text(venue.rawValue)
+                .font(Font.stride.caption)
+        }
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 4)
     }
 
     // MARK: - Planned Stats Section (shown below actuals for completed workouts)

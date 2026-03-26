@@ -354,7 +354,6 @@ final class RouteCreationViewModel {
         }
 
         // Re-key surviving segment caches from old order keys to new order keys
-        let newOrderByID = Dictionary(uniqueKeysWithValues: waypoints.map { ($0.id, $0.order) })
         let newSorted = waypoints.sorted { $0.order < $1.order }
 
         var updatedSegmentRoutes: [String: MKRoute] = [:]

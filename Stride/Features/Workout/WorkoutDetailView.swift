@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct WorkoutDetailView: View {
     @Bindable var viewModel: WorkoutDetailViewModel

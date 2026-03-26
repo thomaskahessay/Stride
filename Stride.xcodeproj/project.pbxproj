@@ -54,6 +54,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9D503B792F75DEE3009EB059 /* Exceptions for "Stride" folder in "Stride" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9D6D31AA2F608E59007CE087 /* Stride */;
+		};
 		9D6D375F2F74A3A8007CE087 /* Exceptions for "StrideQuickLook" folder in "StrideQuickLook" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -90,6 +97,7 @@
 		9D6D31AD2F608E59007CE087 /* Stride */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				9D503B792F75DEE3009EB059 /* Exceptions for "Stride" folder in "Stride" target */,
 				9D6D37782F74A44F007CE087 /* Exceptions for "Stride" folder in "StrideQuickLook" target */,
 				9D6D37792F74A44F007CE087 /* Exceptions for "Stride" folder in "StrideThumbnail" target */,
 			);
@@ -251,7 +259,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					9D6D31AA2F608E59007CE087 = {
 						CreatedOnToolsVersion = 26.3;
@@ -406,6 +414,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -463,6 +472,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;

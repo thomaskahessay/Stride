@@ -6,14 +6,110 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9D6D37522F74A3A8007CE087 /* QuickLook.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D6D37512F74A3A8007CE087 /* QuickLook.framework */; };
+		9D6D375E2F74A3A8007CE087 /* StrideQuickLook.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9D6D374F2F74A3A8007CE087 /* StrideQuickLook.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		9D6D376A2F74A3DC007CE087 /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9D6D37692F74A3DC007CE087 /* QuickLookThumbnailing.framework */; };
+		9D6D37712F74A3DC007CE087 /* StrideThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9D6D37682F74A3DC007CE087 /* StrideThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9D6D375C2F74A3A8007CE087 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9D6D31A32F608E59007CE087 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9D6D374E2F74A3A8007CE087;
+			remoteInfo = StrideQuickLook;
+		};
+		9D6D376F2F74A3DC007CE087 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9D6D31A32F608E59007CE087 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9D6D37672F74A3DC007CE087;
+			remoteInfo = StrideThumbnail;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9D6D37632F74A3A8007CE087 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				9D6D37712F74A3DC007CE087 /* StrideThumbnail.appex in Embed Foundation Extensions */,
+				9D6D375E2F74A3A8007CE087 /* StrideQuickLook.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		9D6D31AB2F608E59007CE087 /* Stride.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stride.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9D6D374F2F74A3A8007CE087 /* StrideQuickLook.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StrideQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9D6D37512F74A3A8007CE087 /* QuickLook.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLook.framework; path = System/Library/Frameworks/QuickLook.framework; sourceTree = SDKROOT; };
+		9D6D37682F74A3DC007CE087 /* StrideThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StrideThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9D6D37692F74A3DC007CE087 /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9D6D375F2F74A3A8007CE087 /* Exceptions for "StrideQuickLook" folder in "StrideQuickLook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9D6D374E2F74A3A8007CE087 /* StrideQuickLook */;
+		};
+		9D6D37722F74A3DC007CE087 /* Exceptions for "StrideThumbnail" folder in "StrideThumbnail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9D6D37672F74A3DC007CE087 /* StrideThumbnail */;
+		};
+		9D6D37782F74A44F007CE087 /* Exceptions for "Stride" folder in "StrideQuickLook" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Core/Models/RouteTransferTypes.swift,
+				Core/Models/RouteValueTypes.swift,
+			);
+			target = 9D6D374E2F74A3A8007CE087 /* StrideQuickLook */;
+		};
+		9D6D37792F74A44F007CE087 /* Exceptions for "Stride" folder in "StrideThumbnail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Core/Models/RouteTransferTypes.swift,
+				Core/Models/RouteValueTypes.swift,
+			);
+			target = 9D6D37672F74A3DC007CE087 /* StrideThumbnail */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9D6D31AD2F608E59007CE087 /* Stride */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9D6D37782F74A44F007CE087 /* Exceptions for "Stride" folder in "StrideQuickLook" target */,
+				9D6D37792F74A44F007CE087 /* Exceptions for "Stride" folder in "StrideThumbnail" target */,
+			);
 			path = Stride;
+			sourceTree = "<group>";
+		};
+		9D6D37532F74A3A8007CE087 /* StrideQuickLook */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9D6D375F2F74A3A8007CE087 /* Exceptions for "StrideQuickLook" folder in "StrideQuickLook" target */,
+			);
+			path = StrideQuickLook;
+			sourceTree = "<group>";
+		};
+		9D6D376B2F74A3DC007CE087 /* StrideThumbnail */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9D6D37722F74A3DC007CE087 /* Exceptions for "StrideThumbnail" folder in "StrideThumbnail" target */,
+			);
+			path = StrideThumbnail;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +122,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		9D6D374C2F74A3A8007CE087 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9D6D37522F74A3A8007CE087 /* QuickLook.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9D6D37652F74A3DC007CE087 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9D6D376A2F74A3DC007CE087 /* QuickLookThumbnailing.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,6 +145,9 @@
 			isa = PBXGroup;
 			children = (
 				9D6D31AD2F608E59007CE087 /* Stride */,
+				9D6D37532F74A3A8007CE087 /* StrideQuickLook */,
+				9D6D376B2F74A3DC007CE087 /* StrideThumbnail */,
+				9D6D37502F74A3A8007CE087 /* Frameworks */,
 				9D6D31AC2F608E59007CE087 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +156,19 @@
 			isa = PBXGroup;
 			children = (
 				9D6D31AB2F608E59007CE087 /* Stride.app */,
+				9D6D374F2F74A3A8007CE087 /* StrideQuickLook.appex */,
+				9D6D37682F74A3DC007CE087 /* StrideThumbnail.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		9D6D37502F74A3A8007CE087 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				9D6D37512F74A3A8007CE087 /* QuickLook.framework */,
+				9D6D37692F74A3DC007CE087 /* QuickLookThumbnailing.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +181,13 @@
 				9D6D31A72F608E59007CE087 /* Sources */,
 				9D6D31A82F608E59007CE087 /* Frameworks */,
 				9D6D31A92F608E59007CE087 /* Resources */,
+				9D6D37632F74A3A8007CE087 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				9D6D375D2F74A3A8007CE087 /* PBXTargetDependency */,
+				9D6D37702F74A3DC007CE087 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				9D6D31AD2F608E59007CE087 /* Stride */,
@@ -69,6 +198,50 @@
 			productName = Stride;
 			productReference = 9D6D31AB2F608E59007CE087 /* Stride.app */;
 			productType = "com.apple.product-type.application";
+		};
+		9D6D374E2F74A3A8007CE087 /* StrideQuickLook */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9D6D37602F74A3A8007CE087 /* Build configuration list for PBXNativeTarget "StrideQuickLook" */;
+			buildPhases = (
+				9D6D374B2F74A3A8007CE087 /* Sources */,
+				9D6D374C2F74A3A8007CE087 /* Frameworks */,
+				9D6D374D2F74A3A8007CE087 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9D6D37532F74A3A8007CE087 /* StrideQuickLook */,
+			);
+			name = StrideQuickLook;
+			packageProductDependencies = (
+			);
+			productName = StrideQuickLook;
+			productReference = 9D6D374F2F74A3A8007CE087 /* StrideQuickLook.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		9D6D37672F74A3DC007CE087 /* StrideThumbnail */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9D6D37732F74A3DC007CE087 /* Build configuration list for PBXNativeTarget "StrideThumbnail" */;
+			buildPhases = (
+				9D6D37642F74A3DC007CE087 /* Sources */,
+				9D6D37652F74A3DC007CE087 /* Frameworks */,
+				9D6D37662F74A3DC007CE087 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				9D6D376B2F74A3DC007CE087 /* StrideThumbnail */,
+			);
+			name = StrideThumbnail;
+			packageProductDependencies = (
+			);
+			productName = StrideThumbnail;
+			productReference = 9D6D37682F74A3DC007CE087 /* StrideThumbnail.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +254,12 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					9D6D31AA2F608E59007CE087 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					9D6D374E2F74A3A8007CE087 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					9D6D37672F74A3DC007CE087 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -100,12 +279,28 @@
 			projectRoot = "";
 			targets = (
 				9D6D31AA2F608E59007CE087 /* Stride */,
+				9D6D374E2F74A3A8007CE087 /* StrideQuickLook */,
+				9D6D37672F74A3DC007CE087 /* StrideThumbnail */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		9D6D31A92F608E59007CE087 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9D6D374D2F74A3A8007CE087 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9D6D37662F74A3DC007CE087 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +317,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		9D6D374B2F74A3A8007CE087 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9D6D37642F74A3DC007CE087 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9D6D375D2F74A3A8007CE087 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9D6D374E2F74A3A8007CE087 /* StrideQuickLook */;
+			targetProxy = 9D6D375C2F74A3A8007CE087 /* PBXContainerItemProxy */;
+		};
+		9D6D37702F74A3DC007CE087 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9D6D37672F74A3DC007CE087 /* StrideThumbnail */;
+			targetProxy = 9D6D376F2F74A3DC007CE087 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		9D6D31B42F608E5B007CE087 /* Debug */ = {
@@ -255,9 +477,12 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = D8ZVHTNLK7;
 				ENABLE_PREVIEWS = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Stride/Info.plist;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Stride reads your running workouts to track your training progress and pre-fill workout logs.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Stride does not write health data, but requires this permission for HealthKit integration.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Used to show your position on the map and plan running routes";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_BackgroundColor = LaunchBackground;
@@ -292,9 +517,12 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = D8ZVHTNLK7;
 				ENABLE_PREVIEWS = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = Info.plist;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Stride/Info.plist;
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Stride reads your running workouts to track your training progress and pre-fill workout logs.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Stride does not write health data, but requires this permission for HealthKit integration.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Used to show your position on the map and plan running routes";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_BackgroundColor = LaunchBackground;
@@ -319,6 +547,124 @@
 			};
 			name = Release;
 		};
+		9D6D37612F74A3A8007CE087 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D8ZVHTNLK7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StrideQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StrideQuickLook;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thomaskahessay.Stride.StrideQuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9D6D37622F74A3A8007CE087 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D8ZVHTNLK7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StrideQuickLook/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StrideQuickLook;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thomaskahessay.Stride.StrideQuickLook;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		9D6D37742F74A3DC007CE087 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D8ZVHTNLK7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StrideThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StrideThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thomaskahessay.Stride.StrideThumbnail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9D6D37752F74A3DC007CE087 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = D8ZVHTNLK7;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = StrideThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = StrideThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thomaskahessay.Stride.StrideThumbnail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -336,6 +682,24 @@
 			buildConfigurations = (
 				9D6D31B72F608E5B007CE087 /* Debug */,
 				9D6D31B82F608E5B007CE087 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9D6D37602F74A3A8007CE087 /* Build configuration list for PBXNativeTarget "StrideQuickLook" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9D6D37612F74A3A8007CE087 /* Debug */,
+				9D6D37622F74A3A8007CE087 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9D6D37732F74A3DC007CE087 /* Build configuration list for PBXNativeTarget "StrideThumbnail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9D6D37742F74A3DC007CE087 /* Debug */,
+				9D6D37752F74A3DC007CE087 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

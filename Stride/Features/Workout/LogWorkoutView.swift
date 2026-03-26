@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import MapKit
 
 // MARK: - Log Mode
 
@@ -22,6 +23,7 @@ struct LogWorkoutView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query private var savedRoutes: [Route]
 
     @State private var mode: LogMode = .selectSource
     @State private var selectedHKWorkout: HealthKitWorkoutData? = nil
@@ -45,6 +47,11 @@ struct LogWorkoutView: View {
 
     // Workout type override — pre-filled from planned type, changeable
     @State private var selectedWorkoutType: WorkoutType = .easyRun
+
+    // Venue & route
+    @State private var selectedVenue: RunVenue?         // nil = not yet chosen (legacy)
+    @State private var selectedRoute: Route?
+    @State private var showRoutePicker = false
 
     // Rest-day specific
     @State private var restDayActivityType: RestDayActivityType = .crossTraining
@@ -249,6 +256,20 @@ struct LogWorkoutView: View {
                 // Workout type picker — lets user label what they actually did
                 if !isRestDayLog && !isStrengthDayLog {
                     workoutTypePicker
+                }
+
+                // Venue picker — outdoor / treadmill / track
+                if !isRestDayLog || (isRestDayLog && restDayActivityType.countsTowardRunningVolume) {
+                    if !isStrengthDayLog {
+                        venuePicker
+                    }
+                }
+
+                // Route attachment (outdoor only, when venue is outdoor and routes exist)
+                if !savedRoutes.isEmpty || selectedRoute != nil {
+                    if selectedVenue == .outdoor && (!isRestDayLog || (isRestDayLog && restDayActivityType.countsTowardRunningVolume)) {
+                        routeAttachmentCard
+                    }
                 }
 
                 // Rest-day activity type selector
@@ -519,6 +540,118 @@ struct LogWorkoutView: View {
         return bpm
     }
 
+    // MARK: - Venue Picker
+
+    private var venuePicker: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("Where did you run?", systemImage: "location.fill")
+                    .font(Font.stride.headingSmall)
+
+                HStack(spacing: 8) {
+                    ForEach(RunVenue.allCases, id: \.self) { venue in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedVenue = venue
+                                // Clear route if switching away from outdoor
+                                if venue != .outdoor {
+                                    selectedRoute = nil
+                                }
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: venue.sfSymbol)
+                                    .font(.system(size: 18, weight: .semibold))
+                                Text(venue.rawValue)
+                                    .font(Font.stride.label)
+                            }
+                            .foregroundStyle(
+                                selectedVenue == venue ? .white : Color.stride.lavenderDeep
+                            )
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: .strideRadiusSM)
+                                    .fill(
+                                        selectedVenue == venue
+                                            ? Color.stride.lavenderDeep
+                                            : Color.stride.lavenderLight
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Route Attachment Card
+
+    private var routeAttachmentCard: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: .strideSM) {
+                Label("Route", systemImage: "map.fill")
+                    .font(Font.stride.headingSmall)
+
+                if let route = selectedRoute {
+                    // Selected route preview
+                    HStack(spacing: .strideSM) {
+                        RouteThumbnail(
+                            waypoints: route.waypoints,
+                            polyline: route.polylineCoordinates,
+                            isLoop: route.isLoop,
+                            size: 56
+                        )
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(route.name)
+                                .font(Font.stride.bodyMedium.weight(.semibold))
+                                .lineLimit(1)
+                            Text(String(format: "%.1f km", route.distance / 1000))
+                                .font(Font.stride.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            withAnimation { selectedRoute = nil }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    Button {
+                        showRoutePicker = true
+                    } label: {
+                        HStack(spacing: .strideSM) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.stride.lavenderDeep)
+                            Text("Attach a route")
+                                .font(Font.stride.bodyMedium)
+                                .foregroundStyle(Color.stride.lavenderDeep)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .sheet(isPresented: $showRoutePicker) {
+            RoutePickerView(
+                targetDistanceMiles: workoutDay?.targetDistanceMiles ?? 0,
+                selectedRoute: $selectedRoute
+            )
+        }
+    }
+
     // MARK: - Workout Type Picker
 
     private static let runnableTypes: [WorkoutType] = [
@@ -694,6 +827,8 @@ struct LogWorkoutView: View {
         if let activity = log.restDayActivityType {
             restDayActivityType = activity
         }
+        selectedVenue = log.runVenue
+        selectedRoute = log.route
         // For editing, skip source selection and go straight to manual entry
         // (unless it's a strength-only log with no run data)
         if workoutDay?.workoutType == .strengthDay && !log.strengthCompleted {
@@ -827,6 +962,8 @@ struct LogWorkoutView: View {
             existing.restDayActivityType = isRestDayLog ? restDayActivityType : nil
             existing.actualWorkoutType = typeOverride
             existing.strengthCompleted = logRunOnStrengthDay
+            existing.runVenue = selectedVenue
+            existing.route = selectedRoute
             try? modelContext.save()
             NotificationCenter.default.post(name: Notification.Name("workoutLogged"), object: nil)
             dismiss()
@@ -843,7 +980,9 @@ struct LogWorkoutView: View {
             averagePaceSecPerMile: effectivePaceSecPerMile,
             restDayActivityType: isRestDayLog ? restDayActivityType : nil,
             actualWorkoutType: typeOverride,
-            strengthCompleted: logRunOnStrengthDay
+            strengthCompleted: logRunOnStrengthDay,
+            runVenue: selectedVenue,
+            route: selectedRoute
         )
 
         modelContext.insert(log)

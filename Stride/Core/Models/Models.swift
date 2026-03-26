@@ -186,6 +186,28 @@ enum AdaptationType: String, Codable {
     case strengthSubstituted  // hard run → strength/mobility session
 }
 
+enum RunVenue: String, Codable, CaseIterable {
+    case outdoor  = "Outdoor"
+    case treadmill = "Treadmill"
+    case track    = "Track"
+
+    var sfSymbol: String {
+        switch self {
+        case .outdoor:   return "figure.run"
+        case .treadmill: return "figure.run.square.stack"
+        case .track:     return "circle.circle"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .outdoor:   return "Road, trail, or path"
+        case .treadmill: return "Indoor treadmill run"
+        case .track:     return "Running track"
+        }
+    }
+}
+
 enum RestDayActivityType: String, Codable, CaseIterable {
     case crossTraining = "Cross-Training"
     case easyShakeout  = "Easy Shakeout"
@@ -682,6 +704,8 @@ final class WorkoutLog {
     var restDayActivityType: RestDayActivityType? // nil = normal workout day log
     var actualWorkoutType: WorkoutType? // nil = matched planned type; set when user overrides
     var strengthCompleted: Bool // true when user also completed strength on this day
+    var runVenue: RunVenue? // nil = legacy log (pre-venue tracking) or non-run
+    @Relationship(deleteRule: .nullify) var route: Route? // optional route used for this run
 
     init(
         actualDistanceMiles: Double = 0,
@@ -693,7 +717,9 @@ final class WorkoutLog {
         averagePaceSecPerMile: Int? = nil,
         restDayActivityType: RestDayActivityType? = nil,
         actualWorkoutType: WorkoutType? = nil,
-        strengthCompleted: Bool = false
+        strengthCompleted: Bool = false,
+        runVenue: RunVenue? = nil,
+        route: Route? = nil
     ) {
         self.id = UUID()
         self.loggedAt = Date()
@@ -707,6 +733,8 @@ final class WorkoutLog {
         self.restDayActivityType = restDayActivityType
         self.actualWorkoutType = actualWorkoutType
         self.strengthCompleted = strengthCompleted
+        self.runVenue = runVenue
+        self.route = route
     }
 
     var formattedDuration: String {

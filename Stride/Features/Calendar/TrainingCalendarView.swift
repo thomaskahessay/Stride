@@ -468,17 +468,31 @@ private struct CalendarDayCell: View {
     private var indicator: some View {
         if let day = workoutDay {
             if day.isCompleted {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color.stride.mint)
+                VStack(spacing: 1) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.stride.mint)
+                    if day.isSwapped {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.system(size: 6))
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                    }
+                }
             } else if day.isSkipped {
                 Image(systemName: "minus.circle.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(Color(.systemGray3))
             } else {
-                Circle()
-                    .fill(day.workoutType.accentColor)
-                    .frame(width: 6, height: 6)
+                VStack(spacing: 1) {
+                    Circle()
+                        .fill(day.workoutType.accentColor)
+                        .frame(width: 6, height: 6)
+                    if day.isSwapped {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.system(size: 6))
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                    }
+                }
             }
         } else if historicalRun != nil {
             Image(systemName: "figure.run")

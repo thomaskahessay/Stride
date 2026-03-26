@@ -7,8 +7,10 @@ struct WorkoutDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @State private var showConfetti = false
+    @State private var showSwapPicker = false
 
     private var workout: WorkoutDay { viewModel.workout }
+    private let swapService = WorkoutSwapService()
 
     var body: some View {
         NavigationStack {
@@ -112,7 +114,18 @@ struct WorkoutDetailView: View {
                 weeklyLoggedMiles: viewModel.weeklyLoggedMiles,
                 weeklyTargetMiles: viewModel.weeklyTargetMiles,
                 isEditing: workout.isCompleted,
+                plan: viewModel.plan,
                 showConfettiOnParent: $showConfetti
+            )
+        }
+        .sheet(isPresented: $showSwapPicker) {
+            SwapWorkoutPickerView(
+                viewModel: SwapWorkoutPickerViewModel(source: workout, plan: viewModel.plan),
+                units: units,
+                onSwapCompleted: { _, _, _ in
+                    // Swap committed — if now a rest day, nothing else needed.
+                    // If it's a run/strength, user can tap "Log This Workout" next.
+                }
             )
         }
         .alert("Delete Log?", isPresented: $viewModel.showDeleteLogConfirmation) {
@@ -172,6 +185,32 @@ struct WorkoutDetailView: View {
                                     .strokeBorder(Color.stride.warmOrange.opacity(0.4), lineWidth: 1)
                             )
                     )
+                }
+
+                if workout.isSwapped {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text("Swapped")
+                            .font(Font.stride.label)
+                    }
+                    .foregroundStyle(Color.stride.lavenderDeep)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(Color.stride.lavenderDeep.opacity(0.15))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.stride.lavenderDeep.opacity(0.4), lineWidth: 1)
+                            )
+                    )
+                }
+
+                if workout.isSwapped, let origType = workout.originalWorkoutType {
+                    Text(originalWorkoutLabel(type: origType, distance: workout.originalTargetDistanceMiles))
+                        .font(Font.stride.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if workout.isCompleted {
@@ -631,6 +670,19 @@ struct WorkoutDetailView: View {
                         viewModel.showLogWorkout = true
                     }
                     .buttonStyle(StridePrimaryButtonStyle())
+
+                    if hasSwapTargets {
+                        Button {
+                            showSwapPicker = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.left.arrow.right")
+                                Text("Swap with another workout")
+                            }
+                            .font(Font.stride.bodyMedium)
+                            .foregroundStyle(Color.stride.lavenderDeep)
+                        }
+                    }
                 }
 
                 if viewModel.canAdjust {
@@ -660,10 +712,21 @@ struct WorkoutDetailView: View {
 
     // MARK: - Helpers
 
+    private var hasSwapTargets: Bool {
+        !swapService.availableSwapTargets(for: workout, in: viewModel.plan).isEmpty
+    }
+
     private var durationLabel: String {
         let h = workout.targetDurationMinutes / 60
         let m = workout.targetDurationMinutes % 60
         return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+
+    private func originalWorkoutLabel(type: WorkoutType, distance: Double?) -> String {
+        if let dist = distance, dist > 0, type.isRun {
+            return "Originally: \(type.rawValue) · \(dist.formattedDistance(unit: units))"
+        }
+        return "Originally: \(type.rawValue)"
     }
 
     private func localised(_ text: String) -> String {

@@ -150,6 +150,7 @@ struct DashboardView: View {
                     workoutDay: viewModel.todayWorkout,
                     units: profile.unitPreference,
                     prefillHealthKitData: viewModel.todayHealthKitRun,
+                    plan: profile.activePlan,
                     showConfettiOnParent: $showConfetti
                 )
             }
@@ -283,7 +284,7 @@ struct WeekStripDayCell: View {
 
     @ViewBuilder
     private var dotView: some View {
-        if let workout, workout.workoutType != .restDay {
+        if let workout {
             if workout.isCompleted {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 10))

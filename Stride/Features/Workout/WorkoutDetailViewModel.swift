@@ -5,7 +5,7 @@ import SwiftData
 final class WorkoutDetailViewModel {
 
     let workout: WorkoutDay
-    private let plan: TrainingPlan
+    let plan: TrainingPlan
     private let adjustmentService: WorkoutAdjustmentService
 
     var showLogWorkout = false
@@ -101,12 +101,49 @@ final class WorkoutDetailViewModel {
     }
 
     /// Deletes the workout log, re-opening swap/skip actions.
+    /// If this was a strength+run swap, reverts both days to their generator originals.
     func deleteLog(context: ModelContext) {
         guard let log = workout.log else { return }
         workout.log = nil
         workout.isCompleted = false
         context.delete(log)
+
+        // If this was a strength+run swap (original was strength, now it's a run),
+        // revert both days — the swap only existed to facilitate the log.
+        if workout.isSwapped,
+           workout.originalWorkoutType == .strengthDay,
+           let partnerID = workout.swapPartnerID,
+           let partner = plan.workoutDays.first(where: { $0.id == partnerID }),
+           !partner.isCompleted {
+            restoreToOriginal(workout)
+            restoreToOriginal(partner)
+        }
+
         try? context.save()
+    }
+
+    /// Restores a workout day to its generator-original properties and clears swap flags.
+    private func restoreToOriginal(_ day: WorkoutDay) {
+        if let type = day.originalWorkoutType { day.workoutType = type }
+        if let dist = day.originalTargetDistanceMiles { day.targetDistanceMiles = dist }
+        if let effort = day.originalEffortLevel { day.effortLevel = effort }
+        if let dur = day.originalTargetDurationMinutes { day.targetDurationMinutes = dur }
+        day.targetPaceSecPerMile = day.originalTargetPaceSecPerMile
+        if let title = day.originalWorkoutTitle { day.workoutTitle = title }
+        if let note = day.originalCoachingNote { day.coachingNote = note }
+        day.stepsData = day.originalStepsData
+
+        day.isSwapped = false
+        day.swapNote = nil
+        day.swapPartnerID = nil
+        day.originalWorkoutType = nil
+        day.originalTargetDistanceMiles = nil
+        day.originalEffortLevel = nil
+        day.originalTargetDurationMinutes = nil
+        day.originalTargetPaceSecPerMile = nil
+        day.originalWorkoutTitle = nil
+        day.originalCoachingNote = nil
+        day.originalStepsData = nil
     }
 
     /// Reverts any readiness-based adaptation on this workout, restoring original values.

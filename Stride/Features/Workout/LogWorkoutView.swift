@@ -19,6 +19,7 @@ struct LogWorkoutView: View {
     var weeklyTargetMiles: Double = 0
     var isEditing: Bool = false
     var prefillHealthKitData: HealthKitWorkoutData? = nil
+    var plan: TrainingPlan? = nil
     @Binding var showConfettiOnParent: Bool
 
     @Environment(\.modelContext) private var modelContext
@@ -55,6 +56,13 @@ struct LogWorkoutView: View {
 
     // Rest-day specific
     @State private var restDayActivityType: RestDayActivityType = .crossTraining
+
+    // Swap state (for strength day "Also Log a Run" picker)
+    @State private var showStrengthRunPicker = false
+    @State private var swapSnapshots: (source: SwapSnapshot, target: SwapSnapshot)?
+    @State private var swapPartnerDay: WorkoutDay?
+    @State private var didSave = false
+    private let swapService = WorkoutSwapService()
 
     private let healthKit = HealthKitManager.shared
 
@@ -134,6 +142,42 @@ struct LogWorkoutView: View {
                     selectedHKWorkout = hkData
                     applyHealthKitData(hkData)
                     mode = .manualEntry
+                }
+            }
+            .onDisappear {
+                revertSwapIfNeeded()
+            }
+            .sheet(isPresented: $showStrengthRunPicker) {
+                if let workout = workoutDay, let plan = plan {
+                    SwapWorkoutPickerView(
+                        viewModel: SwapWorkoutPickerViewModel(
+                            source: workout,
+                            plan: plan,
+                            runOnly: true,
+                            showCustomRunOption: true
+                        ),
+                        units: units,
+                        onSwapCompleted: { snapSource, snapTarget, targetDay in
+                            swapSnapshots = (source: snapSource, target: snapTarget)
+                            swapPartnerDay = targetDay
+                            // The partner day received the strength workout, but the user
+                            // already completed strength today — make it a rest day instead.
+                            targetDay.workoutType = .restDay
+                            targetDay.targetDistanceMiles = 0
+                            targetDay.targetDurationMinutes = 0
+                            targetDay.targetPaceSecPerMile = nil
+                            targetDay.effortLevel = .easy
+                            targetDay.workoutTitle = "Rest Day"
+                            targetDay.coachingNote = "Rest is training. Your body adapts and gets stronger during recovery, not during the run. Sleep well, eat well, and keep your feet up where possible."
+                            targetDay.stepsData = nil
+                            logRunOnStrengthDay = true
+                            mode = .selectSource
+                        },
+                        onCustomRun: {
+                            logRunOnStrengthDay = true
+                            mode = .selectSource
+                        }
+                    )
                 }
             }
         }
@@ -228,8 +272,12 @@ struct LogWorkoutView: View {
                 .disabled(isSaving)
 
             Button {
-                logRunOnStrengthDay = true
-                mode = .selectSource
+                if plan != nil {
+                    showStrengthRunPicker = true
+                } else {
+                    logRunOnStrengthDay = true
+                    mode = .selectSource
+                }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "figure.run")
@@ -240,6 +288,19 @@ struct LogWorkoutView: View {
             .padding(.horizontal, .strideMD)
             .padding(.bottom, .strideMD)
         }
+    }
+
+    // MARK: - Swap Revert
+
+    private func revertSwapIfNeeded() {
+        guard !didSave,
+              let snapshots = swapSnapshots,
+              let workout = workoutDay,
+              let partner = swapPartnerDay else { return }
+        swapService.restoreSnapshot(snapshots.source, onto: workout)
+        swapService.restoreSnapshot(snapshots.target, onto: partner)
+        swapSnapshots = nil
+        swapPartnerDay = nil
     }
 
     // MARK: - Manual Entry Form
@@ -903,6 +964,7 @@ struct LogWorkoutView: View {
         }
 
         isSaving = true
+        didSave = true
 
         if isEditing, let existing = workout.log {
             existing.notes = notes
@@ -945,6 +1007,7 @@ struct LogWorkoutView: View {
         }
 
         isSaving = true
+        didSave = true
 
         // Store actual workout type if it differs from the planned type
         let typeOverride: WorkoutType? = (selectedWorkoutType != workout.workoutType)

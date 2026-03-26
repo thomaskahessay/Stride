@@ -618,6 +618,18 @@ final class WorkoutDay {
     var originalEffortLevel: EffortLevel?       // original effort before adaptation
     var adaptationNote: String?                 // "Downgraded from Tempo — recovery was low"
 
+    // Swap tracking
+    var isSwapped: Bool = false
+    var swapNote: String?                       // "Swapped with Tuesday's Easy Run"
+    var swapPartnerID: UUID?                    // ID of the other WorkoutDay in the swap
+
+    // Generator-original fields (shared with adaptation — write-once)
+    var originalTargetDurationMinutes: Int?
+    var originalTargetPaceSecPerMile: Int?
+    var originalWorkoutTitle: String?
+    var originalCoachingNote: String?
+    var originalStepsData: Data?
+
     @Relationship(deleteRule: .cascade)
     var log: WorkoutLog?
 
@@ -653,6 +665,14 @@ final class WorkoutDay {
         self.originalTargetDistanceMiles = nil
         self.originalEffortLevel = nil
         self.adaptationNote = nil
+        self.isSwapped = false
+        self.swapNote = nil
+        self.swapPartnerID = nil
+        self.originalTargetDurationMinutes = nil
+        self.originalTargetPaceSecPerMile = nil
+        self.originalWorkoutTitle = nil
+        self.originalCoachingNote = nil
+        self.originalStepsData = nil
         self.steps = steps
     }
 

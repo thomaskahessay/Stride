@@ -7,7 +7,6 @@ struct ContentView: View {
     @State private var showLogWorkout = false
     @State private var showAlreadyLoggedAlert = false
     @State private var showConfetti = false
-    @State private var showRestDayInterstitial = false
     @State private var showWorkoutDetail: WorkoutDay? = nil
 
     enum Tab {
@@ -68,7 +67,10 @@ struct ContentView: View {
                     if todayWorkout?.log != nil {
                         showAlreadyLoggedAlert = true
                     } else if todayWorkout?.workoutType == .restDay {
-                        showRestDayInterstitial = true
+                        // Open detail view so user can swap or log
+                        if let workout = todayWorkout {
+                            showWorkoutDetail = workout
+                        }
                     } else {
                         showLogWorkout = true
                     }
@@ -103,6 +105,7 @@ struct ContentView: View {
                 units: profile.unitPreference,
                 weeklyLoggedMiles: weeklyLoggedMiles,
                 weeklyTargetMiles: weeklyTargetMiles,
+                plan: profile.activePlan,
                 showConfettiOnParent: $showConfetti
             )
         }
@@ -118,12 +121,6 @@ struct ContentView: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text("You've already logged a workout for today. View or edit it from the workout detail screen.")
-        }
-        .alert("It's a Rest Day", isPresented: $showRestDayInterstitial) {
-            Button("Log Anyway") { showLogWorkout = true }
-            Button("Got It, I'll Rest", role: .cancel) { }
-        } message: {
-            Text("Recovery is where fitness is built. Rest days are part of the plan — your body needs them to get stronger.")
         }
     }
 
